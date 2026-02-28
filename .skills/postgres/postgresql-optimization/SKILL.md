@@ -7,7 +7,7 @@ description: 'PostgreSQL-specific development assistant focusing on unique Postg
 
 Expert PostgreSQL guidance for ${selection} (or entire project if no selection). Focus on PostgreSQL-specific features, optimization patterns, and advanced capabilities.
 
-## � PostgreSQL-Specific Features
+## 🔑 PostgreSQL-Specific Features
 
 ### JSONB Operations
 ```sql
@@ -94,7 +94,7 @@ WHERE search_vector @@ plainto_tsquery('postgresql')
 ORDER BY rank DESC;
 ```
 
-## � PostgreSQL Performance Tuning
+## ⚡ PostgreSQL Performance Tuning
 
 ### Query Optimization
 ```sql
@@ -142,7 +142,7 @@ FROM pg_settings
 WHERE name IN ('shared_buffers', 'work_mem', 'maintenance_work_mem');
 ```
 
-## �️ PostgreSQL Advanced Data Types
+## 🗂️ PostgreSQL Advanced Data Types
 
 ### Custom Types & Domains
 ```sql
