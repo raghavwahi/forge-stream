@@ -4,6 +4,7 @@ from app.dependencies import get_auth_service, get_current_user
 from app.models.auth import (
     AuthResponse,
     GitHubAuthURLResponse,
+    GitHubCallbackRequest,
     LoginRequest,
     MessageResponse,
     PasswordResetConfirm,
@@ -99,10 +100,9 @@ async def github_auth_url(
     return await service.get_github_auth_url()
 
 
-@router.get("/github/callback", response_model=AuthResponse)
+@router.post("/github/callback", response_model=AuthResponse)
 async def github_callback(
-    code: str,
-    state: str,
+    data: GitHubCallbackRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> AuthResponse:
-    return await service.handle_github_callback(code, state)
+    return await service.handle_github_callback(data.code, data.state)

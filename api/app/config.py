@@ -52,7 +52,7 @@ class SMTPSettings(BaseSettings):
 class GitHubOAuthSettings(BaseSettings):
     client_id: str = ""
     client_secret: str = ""
-    redirect_uri: str = "http://localhost:3000/api/auth/callback/github"
+    redirect_uri: str = "http://localhost:3000/api/v1/auth/github/callback"
 
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 

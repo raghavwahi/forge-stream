@@ -20,28 +20,36 @@ class RedisProvider(BaseCacheProvider):
         if self._client:
             await self._client.close()
 
+    def _get_client(self) -> aioredis.Redis:
+        if self._client is None:
+            raise RuntimeError(
+                "RedisProvider client is not initialized. Call connect() before "
+                "using cache operations."
+            )
+        return self._client
+
     async def get(self, key: str) -> str | None:
-        assert self._client is not None
-        val = await self._client.get(key)
+        client = self._get_client()
+        val = await client.get(key)
         return val.decode() if val else None
 
     async def set(
         self, key: str, value: str, expire_seconds: int | None = None
     ) -> None:
-        assert self._client is not None
+        client = self._get_client()
         if expire_seconds:
-            await self._client.set(key, value, ex=expire_seconds)
+            await client.set(key, value, ex=expire_seconds)
         else:
-            await self._client.set(key, value)
+            await client.set(key, value)
 
     async def incr(self, key: str) -> int:
-        assert self._client is not None
-        return await self._client.incr(key)
+        client = self._get_client()
+        return await client.incr(key)
 
     async def expire(self, key: str, seconds: int) -> None:
-        assert self._client is not None
-        await self._client.expire(key, seconds)
+        client = self._get_client()
+        await client.expire(key, seconds)
 
     async def delete(self, key: str) -> None:
-        assert self._client is not None
-        await self._client.delete(key)
+        client = self._get_client()
+        await client.delete(key)
