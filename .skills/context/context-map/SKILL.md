@@ -9,7 +9,7 @@ Before implementing any changes, analyze the codebase and create a context map.
 
 ## Task
 
-{{task_description}}
+${input:taskDescription}
 
 ## Instructions
 
