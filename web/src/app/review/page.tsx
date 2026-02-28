@@ -176,8 +176,15 @@ export default function ReviewPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={toggleAll}>
-              {selected.size === items.length ? "Deselect All" : "Select All"}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleAll}
+              disabled={items.length === 0}
+            >
+              {items.length > 0 && selected.size === items.length
+                ? "Deselect All"
+                : "Select All"}
             </Button>
           </div>
         </div>
@@ -195,6 +202,7 @@ export default function ReviewPage() {
                   checked={selected.has(item.id)}
                   onChange={() => toggleItem(item.id)}
                   className="mt-1"
+                  aria-label={`Select ${item.title}`}
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">

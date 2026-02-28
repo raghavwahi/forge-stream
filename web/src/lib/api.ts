@@ -4,6 +4,9 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  if (!process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_API_URL must be set in production");
+  }
   const headers = new Headers(init?.headers ?? undefined);
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");

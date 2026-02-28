@@ -69,11 +69,13 @@ export default function OnboardingPage() {
 
         <CardContent>
           {step === 0 ? (
-            <div className="grid gap-3">
+            <div className="grid gap-3" role="radiogroup" aria-label="LLM partner selection">
               {LLM_PARTNERS.map((p) => (
                 <button
                   key={p.id}
                   type="button"
+                  role="radio"
+                  aria-checked={llmPartner === p.id}
                   onClick={() => setLlmPartner(p.id)}
                   className={`flex items-center gap-3 rounded-lg border p-4 text-left text-sm transition-colors ${
                     llmPartner === p.id
@@ -102,6 +104,9 @@ export default function OnboardingPage() {
                   placeholder="ghp_xxxxxxxxxxxx"
                   value={githubToken}
                   onChange={(e) => setGithubToken(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="none"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
