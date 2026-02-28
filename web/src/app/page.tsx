@@ -63,6 +63,7 @@ export default function DashboardPage() {
                 <Input
                   className="pl-9"
                   placeholder="e.g. A REST API with auth, Postgres, and Docker…"
+                  aria-label="Describe what you want to build"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   disabled={generate.isPending}

@@ -105,8 +105,7 @@ export default function OnboardingPage() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Your token is sent directly to the backend and stored securely.
-                It is never exposed to the browser after saving.
+                We don&apos;t store your token in the browser after saving.
               </p>
             </div>
           )}

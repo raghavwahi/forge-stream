@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useSyncExternalStore } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useCreateRepo, type ProposedItem, type CreationProgress } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -17,29 +17,25 @@ import {
 import { toast } from "sonner";
 import { Sparkles, Trash2, ArrowLeft } from "lucide-react";
 
-const emptyItems: ProposedItem[] = [];
-const subscribe = () => () => {};
-
-function useSessionItems(): ProposedItem[] {
-  return useSyncExternalStore(
-    subscribe,
-    () => {
-      const raw = sessionStorage.getItem("forgestream_items");
-      if (!raw) return emptyItems;
-      return JSON.parse(raw) as ProposedItem[];
-    },
-    () => emptyItems
-  );
+function readSessionItems(): ProposedItem[] {
+  if (typeof window === "undefined") return [];
+  const raw = sessionStorage.getItem("forgestream_items");
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as ProposedItem[];
+  } catch {
+    sessionStorage.removeItem("forgestream_items");
+    return [];
+  }
 }
 
 export default function ReviewPage() {
   const router = useRouter();
   const createRepo = useCreateRepo();
 
-  const sessionItems = useSessionItems();
-  const [items, setItems] = useState<ProposedItem[]>(() => sessionItems);
+  const [items, setItems] = useState<ProposedItem[]>(() => readSessionItems());
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(sessionItems.map((i) => i.id))
+    () => new Set(readSessionItems().map((i) => i.id))
   );
   const [progress, setProgress] = useState<CreationProgress | null>(null);
 
@@ -167,6 +163,7 @@ export default function ReviewPage() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Back to dashboard"
               onClick={() => router.push("/")}
             >
               <ArrowLeft className="h-4 w-4" />
@@ -213,7 +210,7 @@ export default function ReviewPage() {
                     variant="ghost"
                     size="icon"
                     onClick={() => handleEnhance(item.id)}
-                    title="Enhance"
+                    aria-label={`Enhance ${item.title}`}
                   >
                     <Sparkles className="h-4 w-4" />
                   </Button>
@@ -221,7 +218,7 @@ export default function ReviewPage() {
                     variant="ghost"
                     size="icon"
                     onClick={() => handleDelete(item.id)}
-                    title="Delete"
+                    aria-label={`Delete ${item.title}`}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
