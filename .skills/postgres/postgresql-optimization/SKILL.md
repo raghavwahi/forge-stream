@@ -237,17 +237,13 @@ SELECT similarity('postgresql', 'postgersql'); -- Fuzzy matching
 
 ### Query Performance Monitoring
 ```sql
--- Identify slow queries
-SELECT query, calls, total_time, mean_time, rows
-FROM pg_stat_statements 
-ORDER BY total_time DESC 
-LIMIT 10;
-
 -- Check index usage
 SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
 FROM pg_stat_user_indexes 
 WHERE idx_scan = 0;
 ```
+
+> **Note:** Use the `pg_stat_statements` query in the [Query Optimization](#query-optimization) section above to identify slow queries.
 
 ### Database Size & Growth
 ```sql
