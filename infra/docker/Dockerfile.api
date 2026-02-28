@@ -9,7 +9,7 @@ RUN apt-get update && \
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir .
 
-RUN apt-get purge -y gcc libffi-dev && apt-get autoremove -y || true
+RUN apt-get purge -y gcc && apt-get autoremove -y
 
 COPY app/ ./app/
 

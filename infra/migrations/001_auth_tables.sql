@@ -1,9 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 -- Users
 CREATE TABLE users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email           VARCHAR(255) UNIQUE NOT NULL,
+    email           CITEXT UNIQUE NOT NULL,
     name            VARCHAR(255) NOT NULL,
     avatar_url      TEXT,
     password_hash   TEXT,
@@ -26,7 +27,8 @@ CREATE TABLE refresh_tokens (
     family_id       UUID NOT NULL,
     expires_at      TIMESTAMPTZ NOT NULL,
     revoked_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (token_hash)
 );
 
 CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
@@ -40,7 +42,8 @@ CREATE TABLE password_reset_tokens (
     token_hash      VARCHAR(64) NOT NULL,
     expires_at      TIMESTAMPTZ NOT NULL,
     used_at         TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (token_hash)
 );
 
 CREATE INDEX idx_password_reset_token_hash ON password_reset_tokens (token_hash);
