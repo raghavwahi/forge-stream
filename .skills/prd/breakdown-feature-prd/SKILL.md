@@ -13,7 +13,7 @@ Review the user's request for a new feature and the parent Epic, and generate a 
 
 ## Output Format
 
-The output should be a complete PRD in Markdown format, saved to `/docs/ways-of-work/plan/{epic-name}/{feature-name}/prd.md`.
+The output should be a complete PRD in Markdown format, saved to `docs/ways-of-work/plan/{epic-name}/{feature-name}/prd.md`. Create any intermediate directories that do not already exist.
 
 ### PRD Structure
 
