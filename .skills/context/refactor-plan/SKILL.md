@@ -9,7 +9,7 @@ Create a detailed plan for this refactoring task.
 
 ## Refactor Goal
 
-{{refactor_description}}
+${input:refactorDescription}
 
 ## Instructions
 
