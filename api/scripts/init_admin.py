@@ -45,14 +45,15 @@ def init_admin(database_url: str, admin_email: str) -> str:
 
     with psycopg2.connect(database_url) as conn:
         with conn.cursor() as cur:
-            # Check for existing admin
+            # Look up user by email regardless of role
             cur.execute(
-                "SELECT id FROM users WHERE email = %s AND role = 'admin'",
+                "SELECT id, role FROM users WHERE email = %s",
                 (admin_email,),
             )
             row = cur.fetchone()
 
             if row is None:
+                # No user with this email – create a new admin
                 cur.execute(
                     """
                     INSERT INTO users (email, display_name, role, password_hash)
@@ -62,16 +63,23 @@ def init_admin(database_url: str, admin_email: str) -> str:
                 )
                 action = "created"
             else:
+                # User exists – promote to admin (if needed) and rotate password
                 cur.execute(
                     """
                     UPDATE users
                        SET password_hash = %s,
+                           role          = 'admin',
                            updated_at    = now()
                      WHERE id = %s
                     """,
                     (password_hash, row[0]),
                 )
-                action = "rotated"
+                existing_role = row[1]
+                action = (
+                    "promoted to admin and password rotated"
+                    if existing_role != "admin"
+                    else "rotated"
+                )
 
     print(f"Admin user {action}: {admin_email}")
     return password

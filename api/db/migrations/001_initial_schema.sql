@@ -37,8 +37,6 @@ CREATE TABLE users (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_users_email ON users (email);
-
 -- ──────────────────────────────────────────────
 -- 2. provider_configs
 -- ──────────────────────────────────────────────
@@ -53,8 +51,6 @@ CREATE TABLE provider_configs (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, provider)
 );
-
-CREATE INDEX idx_provider_configs_user ON provider_configs (user_id);
 
 -- ──────────────────────────────────────────────
 -- 3. prompts

@@ -43,7 +43,7 @@ def test_hash_password_determinism():
 
 @patch("scripts.init_admin.psycopg2")
 def test_init_admin_creates_new_user(mock_pg):
-    """When no admin row exists, an INSERT should be executed."""
+    """When no user row exists, an INSERT should be executed."""
     mock_conn = MagicMock()
     mock_pg.connect.return_value = mock_conn
     mock_cur = MagicMock()
@@ -51,7 +51,7 @@ def test_init_admin_creates_new_user(mock_pg):
     mock_conn.__exit__ = MagicMock(return_value=False)
     mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-    # No existing admin
+    # No existing user
     mock_cur.fetchone.return_value = None
 
     password = init_admin("postgresql://fake", "admin@test.local")
@@ -63,7 +63,7 @@ def test_init_admin_creates_new_user(mock_pg):
 
 
 @patch("scripts.init_admin.psycopg2")
-def test_init_admin_rotates_existing_user(mock_pg):
+def test_init_admin_rotates_existing_admin(mock_pg):
     """When an admin row exists, an UPDATE should be executed."""
     mock_conn = MagicMock()
     mock_pg.connect.return_value = mock_conn
@@ -73,10 +73,31 @@ def test_init_admin_rotates_existing_user(mock_pg):
     mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
     mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
     # Existing admin
-    mock_cur.fetchone.return_value = ("some-uuid",)
+    mock_cur.fetchone.return_value = ("some-uuid", "admin")
 
     password = init_admin("postgresql://fake", "admin@test.local")
 
     assert len(password) == 24
     calls = mock_cur.execute.call_args_list
     assert any("UPDATE" in str(c) for c in calls)
+
+
+@patch("scripts.init_admin.psycopg2")
+def test_init_admin_promotes_existing_user(mock_pg):
+    """When a non-admin user exists with the email, promote and rotate."""
+    mock_conn = MagicMock()
+    mock_pg.connect.return_value = mock_conn
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    # Existing non-admin user
+    mock_cur.fetchone.return_value = ("some-uuid", "user")
+
+    password = init_admin("postgresql://fake", "admin@test.local")
+
+    assert len(password) == 24
+    calls = mock_cur.execute.call_args_list
+    # Should UPDATE with role = 'admin'
+    assert any("UPDATE" in str(c) and "admin" in str(c) for c in calls)
