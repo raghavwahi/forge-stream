@@ -4,17 +4,11 @@ from api.app.providers.config import ProviderConfig
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from app.routers.work_items import router as work_items_router
+
 app = FastAPI(title="ForgeStream API", version="0.1.0")
 
-_config = ProviderConfig()
-_auto = AutoProvider(config=_config)
-
-
-class GenerateRequest(BaseModel):
-    prompt: str = Field(..., min_length=1)
-    model: str | None = None
-    temperature: float = Field(0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(1024, ge=1, le=32_000)
+app.include_router(work_items_router)
 
 
 @app.get("/health")
