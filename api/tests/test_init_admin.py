@@ -29,11 +29,7 @@ def test_generate_password_characters():
 
 def test_hash_password_format():
     h = _hash_password("secret")
-    parts = h.split("$")
-    assert len(parts) == 2
-    salt, digest = parts
-    assert len(salt) == 32       # 16 bytes → 32 hex chars
-    assert len(digest) == 64     # SHA-256 → 64 hex chars
+    assert h.startswith("$2b$")  # bcrypt prefix
 
 
 def test_hash_password_determinism():

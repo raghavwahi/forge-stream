@@ -28,6 +28,10 @@ CREATE TABLE users (
     display_name          TEXT,
     role                  user_role NOT NULL DEFAULT 'user',
     github_token_enc      BYTEA,               -- encrypted GitHub PAT
+                                              -- Encrypt with AES-256-GCM via pgcrypto or
+                                              -- application-layer encryption before storage.
+                                              -- Key management: use a dedicated secret manager
+                                              -- (e.g. Vault, AWS KMS). Rotate keys by re-encrypting.
     password_hash         TEXT,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -42,7 +46,7 @@ CREATE TABLE provider_configs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     provider      provider_type NOT NULL,
-    api_key_enc   BYTEA,                        -- encrypted API key
+    api_key_enc   BYTEA,                        -- encrypted API key (same scheme as github_token_enc)
     model_name    TEXT,
     is_active     BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -93,6 +97,8 @@ CREATE TABLE analytics (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     event_type    analytics_event NOT NULL,
+    -- ON DELETE SET NULL: analytics rows are preserved for historical
+    -- reporting even when the referenced prompt or work_item is removed.
     prompt_id     UUID REFERENCES prompts (id)    ON DELETE SET NULL,
     work_item_id  UUID REFERENCES work_items (id) ON DELETE SET NULL,
     metadata      JSONB DEFAULT '{}',

@@ -18,12 +18,12 @@ Behaviour
 
 from __future__ import annotations
 
-import hashlib
 import os
 import secrets
 import string
 import sys
 
+import bcrypt
 import psycopg2  # type: ignore[import-untyped]
 
 
@@ -34,14 +34,8 @@ def _generate_password(length: int = 24) -> str:
 
 
 def _hash_password(password: str) -> str:
-    """Return a salted SHA-256 hash of *password*.
-
-    Production deployments should use bcrypt/argon2; SHA-256 is used
-    here to avoid an extra dependency in the bootstrap script.
-    """
-    salt = secrets.token_hex(16)
-    digest = hashlib.sha256(f"{salt}${password}".encode()).hexdigest()
-    return f"{salt}${digest}"
+    """Return a bcrypt hash of *password*."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def init_admin(database_url: str, admin_email: str) -> str:
@@ -49,39 +43,35 @@ def init_admin(database_url: str, admin_email: str) -> str:
     password = _generate_password()
     password_hash = _hash_password(password)
 
-    conn = psycopg2.connect(database_url)
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                # Check for existing admin
-                cur.execute(
-                    "SELECT id FROM users WHERE email = %s AND role = 'admin'",
-                    (admin_email,),
-                )
-                row = cur.fetchone()
+    with psycopg2.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            # Check for existing admin
+            cur.execute(
+                "SELECT id FROM users WHERE email = %s AND role = 'admin'",
+                (admin_email,),
+            )
+            row = cur.fetchone()
 
-                if row is None:
-                    cur.execute(
-                        """
-                        INSERT INTO users (email, display_name, role, password_hash)
-                        VALUES (%s, %s, 'admin', %s)
-                        """,
-                        (admin_email, "Admin", password_hash),
-                    )
-                    action = "created"
-                else:
-                    cur.execute(
-                        """
-                        UPDATE users
-                           SET password_hash = %s,
-                               updated_at    = now()
-                         WHERE id = %s
-                        """,
-                        (password_hash, row[0]),
-                    )
-                    action = "rotated"
-    finally:
-        conn.close()
+            if row is None:
+                cur.execute(
+                    """
+                    INSERT INTO users (email, display_name, role, password_hash)
+                    VALUES (%s, %s, 'admin', %s)
+                    """,
+                    (admin_email, "Admin", password_hash),
+                )
+                action = "created"
+            else:
+                cur.execute(
+                    """
+                    UPDATE users
+                       SET password_hash = %s,
+                           updated_at    = now()
+                     WHERE id = %s
+                    """,
+                    (password_hash, row[0]),
+                )
+                action = "rotated"
 
     print(f"Admin user {action}: {admin_email}")
     return password
