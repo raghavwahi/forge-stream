@@ -18,22 +18,22 @@ export interface LLMProvider {
 }
 
 export interface LLMRequest {
-  provider?: LLMProvider["name"];
-  model: string;
   prompt: string;
+  model?: string;
   max_tokens?: number;
   temperature?: number;
 }
 
 export interface LLMResponse {
-  provider: LLMProvider["name"];
-  model: string;
   text: string;
+  model: string;
+  provider: LLMProvider["name"];
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
   };
+  latency_ms: number;
 }
 
 export interface ApiError {
