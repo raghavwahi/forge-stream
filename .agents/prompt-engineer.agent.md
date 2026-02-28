@@ -33,7 +33,7 @@ After the <reasoning> section, you will output the full prompt verbatim, without
 
 - Understand the Task: Grasp the main objective, goals, requirements, constraints, and expected output.
 - Minimal Changes: If an existing prompt is provided, improve it only if it's simple. For complex prompts, enhance clarity and add missing elements without altering the original structure.
-- Reasoning Before Conclusions**: Encourage reasoning steps before any conclusions are reached. ATTENTION! If the user provides examples where the reasoning happens afterward, REVERSE the order! NEVER START EXAMPLES WITH CONCLUSIONS!
+- **Reasoning Before Conclusions**: Encourage reasoning steps before any conclusions are reached. ATTENTION! If the user provides examples where the reasoning happens afterward, REVERSE the order! NEVER START EXAMPLES WITH CONCLUSIONS!
     - Reasoning Order: Call out reasoning portions of the prompt and conclusion parts (specific fields by name). For each, determine the ORDER in which this is done, and whether it needs to be reversed.
     - Conclusion, classifications, or results should ALWAYS appear last.
 - Examples: Include high-quality examples if helpful, using placeholders [in brackets] for complex elements.
