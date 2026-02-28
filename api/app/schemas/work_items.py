@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class WorkItemType(str, Enum):
@@ -91,7 +91,7 @@ class EnhanceWorkItemResponse(BaseModel):
 class GitHubConfig(BaseModel):
     """Configuration for GitHub API access."""
 
-    token: str = Field(description="GitHub personal access token")
+    token: SecretStr = Field(description="GitHub personal access token")
     owner: str = Field(description="Repository owner (user or org)")
     repo: str = Field(description="Repository name")
 

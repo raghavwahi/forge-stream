@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -87,11 +86,11 @@ class LLMProvider:
     ) -> WorkItem:
         """Inject more technical detail into an existing work item."""
         llm = self._build_chat_model(model)
+        parser = JsonOutputParser(pydantic_object=WorkItem)
         messages = [
             SystemMessage(content=SYSTEM_PROMPT_ENHANCE_ITEM),
             HumanMessage(content=item.model_dump_json()),
         ]
         response = await llm.ainvoke(messages)
-        raw = str(response.content)
-        data: dict[str, Any] = json.loads(raw)
-        return WorkItem.model_validate(data)
+        parsed: dict[str, Any] = parser.invoke(response)
+        return WorkItem.model_validate(parsed)

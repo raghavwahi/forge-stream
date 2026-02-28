@@ -27,18 +27,20 @@ class GitHubService:
 
     def _get_repo(self, config: GitHubConfig) -> GithubRepo:
         """Authenticate and return the target repository."""
-        client = Github(config.token)
+        client = Github(config.token.get_secret_value())
         return client.get_repo(f"{config.owner}/{config.repo}")
 
     def _ensure_labels(
-        self, repo: GithubRepo, labels: list[str]
+        self,
+        repo: GithubRepo,
+        labels: list[str],
+        cache: set[str],
     ) -> None:
-        """Create missing labels in the repository."""
-        existing = {lbl.name for lbl in repo.get_labels()}
+        """Create missing labels in the repository using a shared cache."""
         for label in labels:
-            if label not in existing:
+            if label not in cache:
                 repo.create_label(name=label, color="ededed")
-                existing.add(label)
+                cache.add(label)
 
     def _build_body(self, item: WorkItem) -> str:
         """Build the issue body including a nested task-list for children."""
@@ -60,12 +62,13 @@ class GitHubService:
         self,
         repo: GithubRepo,
         item: WorkItem,
+        label_cache: set[str],
     ) -> CreatedIssue:
         """Recursively create an issue and its non-task children."""
         type_label = _LABEL_MAP.get(item.type, "task")
         all_labels = list({type_label, *item.labels})
 
-        self._ensure_labels(repo, all_labels)
+        self._ensure_labels(repo, all_labels, label_cache)
 
         body = self._build_body(item)
         issue = repo.create_issue(
@@ -78,7 +81,7 @@ class GitHubService:
         for child in item.children:
             if child.type != WorkItemType.TASK:
                 created_children.append(
-                    self._create_issue_recursive(repo, child)
+                    self._create_issue_recursive(repo, child, label_cache)
                 )
 
         return CreatedIssue(
@@ -93,14 +96,17 @@ class GitHubService:
         self, config: GitHubConfig, items: list[WorkItem]
     ) -> list[CreatedIssue]:
         """Create GitHub issues for all root-level work items."""
-        repo = self._get_repo(config)
-        return await asyncio.to_thread(self._create_all, repo, items)
+        return await asyncio.to_thread(self._create_all, config, items)
 
     def _create_all(
-        self, repo: GithubRepo, items: list[WorkItem]
+        self, config: GitHubConfig, items: list[WorkItem]
     ) -> list[CreatedIssue]:
         """Synchronous helper executed in a thread pool."""
+        repo = self._get_repo(config)
+        label_cache = {lbl.name for lbl in repo.get_labels()}
         results: list[CreatedIssue] = []
         for item in items:
-            results.append(self._create_issue_recursive(repo, item))
+            results.append(
+                self._create_issue_recursive(repo, item, label_cache)
+            )
         return results
