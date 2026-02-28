@@ -97,7 +97,7 @@ All LLM integrations share a common abstract interface so that new providers can
           ┌──────────────┼──────────────┐
           │              │              │
 ┌─────────▼────┐ ┌──────▼───────┐ ┌────▼──────────┐
-│ OpenAIProvider│ │AnthropicProv.│ │OllamaProvider │
+│ OpenAIProvider│ │AnthropicProvider│ │OllamaProvider │
 │──────────────│ │──────────────│ │───────────────│
 │ api_key      │ │ api_key      │ │ base_url      │
 │──────────────│ │──────────────│ │───────────────│

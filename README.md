@@ -32,8 +32,8 @@ This builds and starts:
 |---------|-----|-------------|
 | **web** | <http://localhost:3000> | Next.js frontend |
 | **api** | <http://localhost:8000> | FastAPI backend |
-| **API docs** | <http://localhost:8000/docs> | Swagger UI |
-| **API docs** | <http://localhost:8000/redoc> | ReDoc |
+| **API docs (Swagger UI)** | <http://localhost:8000/docs> | Swagger UI |
+| **API docs (ReDoc)** | <http://localhost:8000/redoc> | ReDoc |
 
 ### 3. Verify the stack is running
 
