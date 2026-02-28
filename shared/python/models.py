@@ -29,9 +29,8 @@ class User(BaseModel):
 
 
 class LLMRequest(BaseModel):
-    provider: LLMProviderName | None = None
-    model: str
     prompt: str
+    model: str | None = None
     max_tokens: int | None = None
     temperature: float | None = None
 
@@ -43,10 +42,11 @@ class TokenUsage(BaseModel):
 
 
 class LLMResponse(BaseModel):
-    provider: LLMProviderName
-    model: str
     text: str
+    model: str
+    provider: LLMProviderName
     usage: TokenUsage
+    latency_ms: float
 
 
 class ApiError(BaseModel):
