@@ -13,8 +13,9 @@ class AuthProvider(str, Enum):
 
 class LLMProviderName(str, Enum):
     OPENAI = "openai"
-    CLAUDE = "claude"
+    ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 class User(BaseModel):
@@ -28,7 +29,7 @@ class User(BaseModel):
 
 
 class LLMRequest(BaseModel):
-    provider: LLMProviderName
+    provider: LLMProviderName | None = None
     model: str
     prompt: str
     max_tokens: int | None = None
@@ -44,7 +45,7 @@ class TokenUsage(BaseModel):
 class LLMResponse(BaseModel):
     provider: LLMProviderName
     model: str
-    content: str
+    text: str
     usage: TokenUsage
 
 

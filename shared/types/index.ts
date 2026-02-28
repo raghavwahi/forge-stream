@@ -13,12 +13,12 @@ export interface User {
 
 export interface LLMProvider {
   id: string;
-  name: "openai" | "claude" | "gemini";
+  name: "openai" | "anthropic" | "gemini" | "ollama";
   model: string;
 }
 
 export interface LLMRequest {
-  provider: LLMProvider["name"];
+  provider?: LLMProvider["name"];
   model: string;
   prompt: string;
   max_tokens?: number;
@@ -28,7 +28,7 @@ export interface LLMRequest {
 export interface LLMResponse {
   provider: LLMProvider["name"];
   model: string;
-  content: string;
+  text: string;
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
