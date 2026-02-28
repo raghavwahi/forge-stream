@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
 
     @property
+    def cors_origins(self) -> list[str]:
+        return [self.frontend_url]
+
+    @property
     def jwt(self) -> JWTSettings:
         return JWTSettings(
             secret_key=self.jwt_secret_key,

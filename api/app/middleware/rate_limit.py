@@ -23,6 +23,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if redis is None:
             return await call_next(request)
 
+        # Use request.client.host (the TCP connection source).
+        # When deployed behind a reverse proxy, add Starlette's
+        # ProxyHeadersMiddleware so this resolves to the real client IP
+        # rather than the proxy's address.
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
         max_requests, window = RATE_LIMITS.get(path, DEFAULT_LIMIT)

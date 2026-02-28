@@ -96,6 +96,7 @@ def get_auth_service(
     password_manager: PasswordManager = Depends(get_password_manager),
     email_provider: SMTPEmailProvider = Depends(get_email_provider),
     github_provider: GitHubOAuthProvider = Depends(get_github_provider),
+    cache_provider: RedisProvider = Depends(get_redis_provider),
     settings: Settings = Depends(get_cached_settings),
 ) -> AuthService:
     return AuthService(
@@ -107,6 +108,7 @@ def get_auth_service(
         password_manager=password_manager,
         email_provider=email_provider,
         github_provider=github_provider,
+        cache_provider=cache_provider,
         settings=settings,
     )
 

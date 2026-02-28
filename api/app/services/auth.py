@@ -15,7 +15,7 @@ from app.models.auth import (
     TokenResponse,
     UserResponse,
 )
-from app.providers.base import BaseEmailProvider
+from app.providers.base import BaseCacheProvider, BaseEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.repositories.oauth_account import OAuthAccountRepository
 from app.repositories.password_reset import PasswordResetRepository
@@ -38,6 +38,7 @@ class AuthService:
         password_manager: PasswordManager,
         email_provider: BaseEmailProvider,
         github_provider: GitHubOAuthProvider,
+        cache_provider: BaseCacheProvider,
         settings: Settings,
     ) -> None:
         self._user_repo = user_repo
@@ -48,14 +49,15 @@ class AuthService:
         self._pwd = password_manager
         self._email = email_provider
         self._github = github_provider
+        self._cache = cache_provider
         self._settings = settings
 
     async def signup(self, data: SignupRequest) -> AuthResponse:
         existing = await self._user_repo.find_by_email(data.email)
         if existing:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unable to complete signup",
             )
 
         password_hash = self._pwd.hash(data.password)
@@ -74,15 +76,15 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
-        if not user["is_active"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account disabled",
-            )
         if not self._pwd.verify(data.password, user["password_hash"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
+            )
+        if not user["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account disabled",
             )
 
         if self._pwd.needs_rehash(user["password_hash"]):
@@ -186,12 +188,22 @@ class AuthService:
 
     async def get_github_auth_url(self) -> GitHubAuthURLResponse:
         state = secrets.token_urlsafe(32)
+        await self._cache.set(
+            f"oauth_state:{state}", "1", expire_seconds=600
+        )
         url = self._github.get_authorization_url(state)
         return GitHubAuthURLResponse(authorization_url=url, state=state)
 
     async def handle_github_callback(
         self, code: str, state: str
     ) -> AuthResponse:
+        stored_state = await self._cache.get(f"oauth_state:{state}")
+        if not stored_state:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired OAuth state",
+            )
+        await self._cache.delete(f"oauth_state:{state}")
         token_data = await self._github.exchange_code_for_token(code)
         access_token = token_data.get("access_token")
         if not access_token:
