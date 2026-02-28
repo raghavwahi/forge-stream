@@ -8,8 +8,7 @@ Architecture Rules:
 
 Code Quality:
 
-- DRY principle mandatory
-- No duplicate logic
+- Enforce DRY: no duplicate logic
 - Strict typing required
 
 Security:
