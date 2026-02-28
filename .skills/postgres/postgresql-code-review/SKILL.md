@@ -15,7 +15,7 @@ Expert PostgreSQL code review for ${selection} (or entire project if no selectio
 SELECT * FROM orders WHERE data->>'status' = 'shipped';  -- No index support
 
 -- ✅ GOOD: Indexable JSONB queries
-CREATE INDEX idx_orders_status ON orders USING gin((data->'status'));
+CREATE INDEX idx_orders_data ON orders USING gin(data);
 SELECT * FROM orders WHERE data @> '{"status": "shipped"}';
 
 -- ❌ BAD: Deep nesting without consideration
@@ -53,6 +53,8 @@ CREATE TABLE users (
 );
 
 -- ✅ GOOD: PostgreSQL-optimized schema
+-- Note: CITEXT requires the citext extension
+CREATE EXTENSION IF NOT EXISTS citext;
 CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
     email CITEXT UNIQUE NOT NULL,  -- Case-insensitive email

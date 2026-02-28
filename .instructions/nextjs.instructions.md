@@ -30,6 +30,33 @@ This document summarizes the latest, authoritative best practices for building, 
 - **Feature Folders:** For large apps, group by feature (e.g., `app/dashboard/`, `app/auth/`).
 - **Use `src/`** (optional): Place all source code in `src/` to separate from config files.
 
+## 2. Component Best Practices
+
+- **Component Types:**
+  - **Server Components** (default): For data fetching, heavy logic, and non-interactive UI.
+  - **Client Components:** Add `'use client'` at the top. Use for interactivity, state, or browser APIs.
+- **When to Create a Component:**
+  - If a UI pattern is reused more than once.
+  - If a section of a page is complex or self-contained.
+  - If it improves readability or testability.
+- **Naming Conventions:**
+  - Use `PascalCase` for component files and exports (e.g., `UserCard.tsx`).
+  - Use `camelCase` for hooks (e.g., `useUser.ts`).
+  - Use `snake_case` or `kebab-case` for static assets (e.g., `logo_dark.svg`).
+  - Name context providers as `XyzProvider` (e.g., `ThemeProvider`).
+- **File Naming:**
+  - Match the component name to the file name.
+  - For single-export files, default export the component.
+  - For multiple related components, use an `index.ts` barrel file.
+- **Component Location:**
+  - Place shared components in `components/`.
+  - Place route-specific components inside the relevant route folder.
+- **Props:**
+  - Use TypeScript interfaces for props.
+  - Prefer explicit prop types and default values.
+- **Testing:**
+  - Co-locate tests with components (e.g., `UserCard.test.tsx`).
+
 ## 2.1. Server and Client Component Integration (App Router)
 
 **Never use `next/dynamic` with `{ ssr: false }` inside a Server Component.** This is not supported and will cause a build/runtime error.
@@ -73,33 +100,6 @@ Always move client-only UI into a Client Component and import it directly in you
 - **Avoid dynamic rendering by accident:** Accessing request data (cookies/headers/searchParams) opts the route into dynamic behavior. Read them intentionally and isolate dynamic parts behind `Suspense` boundaries when appropriate.
 
 ---
-
-## 2. Component Best Practices
-
-- **Component Types:**
-  - **Server Components** (default): For data fetching, heavy logic, and non-interactive UI.
-  - **Client Components:** Add `'use client'` at the top. Use for interactivity, state, or browser APIs.
-- **When to Create a Component:**
-  - If a UI pattern is reused more than once.
-  - If a section of a page is complex or self-contained.
-  - If it improves readability or testability.
-- **Naming Conventions:**
-  - Use `PascalCase` for component files and exports (e.g., `UserCard.tsx`).
-  - Use `camelCase` for hooks (e.g., `useUser.ts`).
-  - Use `snake_case` or `kebab-case` for static assets (e.g., `logo_dark.svg`).
-  - Name context providers as `XyzProvider` (e.g., `ThemeProvider`).
-- **File Naming:**
-  - Match the component name to the file name.
-  - For single-export files, default export the component.
-  - For multiple related components, use an `index.ts` barrel file.
-- **Component Location:**
-  - Place shared components in `components/`.
-  - Place route-specific components inside the relevant route folder.
-- **Props:**
-  - Use TypeScript interfaces for props.
-  - Prefer explicit prop types and default values.
-- **Testing:**
-  - Co-locate tests with components (e.g., `UserCard.test.tsx`).
 
 ## 3. Naming Conventions (General)
 

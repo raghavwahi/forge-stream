@@ -125,22 +125,18 @@ Now convert: 37°C
 ```
 
 **Chain-of-Thought Prompting:**
-- Ask the AI to show its reasoning process
-- Helps with complex problem-solving
-- Makes the AI's thinking process transparent
+- Ask the AI to provide a brief rationale or high-level steps for its answer
+- Helps with complex problem-solving by exposing key reasoning steps
+- Improves explainability without requiring full internal thought disclosure
+- Note: Many LLM runtimes limit detailed chain-of-thought disclosure; request a concise rationale instead of full step-by-step thinking
 
 **Example:**
 ```
-Solve this math problem step by step:
+Solve this math problem and briefly explain your approach:
 
 Problem: If a train travels 300 miles in 4 hours, what is its average speed?
 
-Let me think through this step by step:
-1. First, I need to understand what average speed means
-2. Average speed = total distance / total time
-3. Total distance = 300 miles
-4. Total time = 4 hours
-5. Average speed = 300 miles / 4 hours = 75 miles per hour
+Approach: Average speed = total distance ÷ total time = 300 ÷ 4 = 75 mph.
 
 The train's average speed is 75 miles per hour.
 ```
