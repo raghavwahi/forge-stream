@@ -4,7 +4,7 @@ Architecture Rules:
 - Controllers must never access DB directly
 - Providers must implement interfaces
 - LLM integrations must be abstracted
-- Always async functions
+- Prefer async functions for I/O-bound operations (API handlers / DB / network)
 
 Code Quality:
 
