@@ -1,0 +1,13 @@
+{
+  "name": "forge-stream",
+  "private": true,
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "web:dev": "npm run dev --workspace=web",
+    "web:build": "npm run build --workspace=web",
+    "api:dev": "cd api && uvicorn app.main:app --reload --port 8000",
+    "infra:up": "docker compose -f infra/docker/docker-compose.yml up --build"
+  }
+}
