@@ -122,6 +122,14 @@ class AuthService:
                 detail="Token reuse detected",
             )
 
+        user = await self._user_repo.find_by_id(payload.sub)
+        if not user or not user["is_active"]:
+            await self._token_repo.revoke(str(stored["id"]))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token",
+            )
+
         await self._token_repo.revoke(str(stored["id"]))
         return await self._create_token_pair(
             payload.sub, family_id=payload.family_id
