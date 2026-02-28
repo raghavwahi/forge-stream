@@ -14,9 +14,10 @@ Code Quality:
 
 Security:
 
-- Never log tokens
+- Never log secrets (API keys, auth/session/JWT/refresh tokens, passwords, etc.)
 - Encrypt credentials
 - Validate all input
+- You may record LLM token counts/usage metrics, but must never log prompts, responses, or any credentials
 
 Infra:
 
