@@ -1,3 +1,5 @@
+"""Shared Python types for ForgeStream API."""
+
 from datetime import datetime
 from enum import Enum
 
@@ -11,8 +13,9 @@ class AuthProvider(str, Enum):
 
 class LLMProviderName(str, Enum):
     OPENAI = "openai"
-    CLAUDE = "claude"
+    ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 class User(BaseModel):
@@ -21,15 +24,13 @@ class User(BaseModel):
     name: str
     avatar_url: str | None = None
     provider: AuthProvider
-    is_verified: bool = False
     created_at: datetime
     updated_at: datetime
 
 
 class LLMRequest(BaseModel):
-    provider: LLMProviderName
-    model: str
     prompt: str
+    model: str | None = None
     max_tokens: int | None = None
     temperature: float | None = None
 
@@ -41,10 +42,11 @@ class TokenUsage(BaseModel):
 
 
 class LLMResponse(BaseModel):
-    provider: LLMProviderName
+    text: str
     model: str
-    content: str
+    provider: LLMProviderName
     usage: TokenUsage
+    latency_ms: float
 
 
 class ApiError(BaseModel):

@@ -2,7 +2,8 @@
   "name": "forge-stream",
   "private": true,
   "workspaces": [
-    "web"
+    "web",
+    "shared"
   ],
   "scripts": {
     "web:dev": "npm run dev --workspace=web",
