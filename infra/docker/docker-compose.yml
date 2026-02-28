@@ -1,4 +1,64 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+      POSTGRES_DB: forgestream
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../infra/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d forgestream"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  api:
+    build:
+      context: ../../api
+      dockerfile: ../infra/docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=forge
+      - DB_PASSWORD=forge
+      - DB_NAME=forgestream
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=dev-secret-change-in-production
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_USE_TLS=false
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   web:
     build:
       context: ../../web
@@ -11,11 +71,5 @@ services:
       api:
         condition: service_started
 
-  api:
-    build:
-      context: ../../api
-      dockerfile: ../infra/docker/Dockerfile.api
-    ports:
-      - "8000:8000"
-    environment:
-      - ENV=development
+volumes:
+  pgdata:

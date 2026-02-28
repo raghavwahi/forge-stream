@@ -21,6 +21,21 @@ spec:
           env:
             - name: ENV
               value: "production"
+            - name: DB_HOST
+              value: "postgres-svc"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: "forge"
+            - name: DB_NAME
+              value: "forgestream"
+            - name: REDIS_HOST
+              value: "redis-svc"
+            - name: REDIS_PORT
+              value: "6379"
+          envFrom:
+            - secretRef:
+                name: api-secrets
           readinessProbe:
             httpGet:
               path: /health
