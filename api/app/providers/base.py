@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import time
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,61 +69,61 @@ class BaseProvider(abc.ABC):
         }
 
 
-class BaseDatabaseProvider(ABC):
-    @abstractmethod
+class BaseDatabaseProvider(abc.ABC):
+    @abc.abstractmethod
     async def connect(self) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def disconnect(self) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def fetch_one(self, query: str, *args: Any) -> dict | None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def fetch_all(self, query: str, *args: Any) -> list[dict]: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def execute(self, query: str, *args: Any) -> str: ...
 
 
-class BaseCacheProvider(ABC):
-    @abstractmethod
+class BaseCacheProvider(abc.ABC):
+    @abc.abstractmethod
     async def connect(self) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def disconnect(self) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def get(self, key: str) -> str | None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def set(
         self, key: str, value: str, expire_seconds: int | None = None
     ) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def incr(self, key: str) -> int: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def expire(self, key: str, seconds: int) -> None: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def delete(self, key: str) -> None: ...
 
 
-class BaseEmailProvider(ABC):
-    @abstractmethod
+class BaseEmailProvider(abc.ABC):
+    @abc.abstractmethod
     async def send_email(
         self, to: str, subject: str, html_body: str
     ) -> None: ...
 
 
-class BaseOAuthProvider(ABC):
-    @abstractmethod
+class BaseOAuthProvider(abc.ABC):
+    @abc.abstractmethod
     def get_authorization_url(self, state: str) -> str: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def exchange_code_for_token(self, code: str) -> dict: ...
 
-    @abstractmethod
+    @abc.abstractmethod
     async def get_user_info(self, access_token: str) -> dict: ...
