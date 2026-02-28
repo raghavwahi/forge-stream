@@ -41,7 +41,7 @@ class TestUsageRecord:
         rec = UsageRecord()
         rec.record(10, 20)
         rec.record(30, 40)
-        assert rec.total_tokens == 100  # 30 + 70
+        assert rec.total_tokens == 100  # (10+20) + (30+40)
         assert rec.total_requests == 2
         assert len(rec.history) == 2
 

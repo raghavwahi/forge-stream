@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import backoff
+import google.api_core.exceptions
 import google.generativeai as genai
 from api.app.providers.base import BaseProvider, ProviderResponse
 from api.app.providers.config import ProviderConfig
@@ -20,9 +21,12 @@ class GeminiProvider(BaseProvider):
 
     @backoff.on_exception(
         backoff.expo,
-        Exception,
+        (
+            google.api_core.exceptions.ResourceExhausted,
+            google.api_core.exceptions.ServiceUnavailable,
+            google.api_core.exceptions.GatewayTimeout,
+        ),
         max_tries=5,
-        giveup=lambda e: "rate" not in str(e).lower(),
     )
     async def generate(
         self,
