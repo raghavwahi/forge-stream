@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from github import Github
 from github.Repository import Repository as GithubRepo
 
@@ -92,6 +94,12 @@ class GitHubService:
     ) -> list[CreatedIssue]:
         """Create GitHub issues for all root-level work items."""
         repo = self._get_repo(config)
+        return await asyncio.to_thread(self._create_all, repo, items)
+
+    def _create_all(
+        self, repo: GithubRepo, items: list[WorkItem]
+    ) -> list[CreatedIssue]:
+        """Synchronous helper executed in a thread pool."""
         results: list[CreatedIssue] = []
         for item in items:
             results.append(self._create_issue_recursive(repo, item))

@@ -112,7 +112,7 @@ def test_create_issues(mock_service):
         "/work-items/create-issues",
         json={
             "github": {
-                "token": "ghp_test",
+                "token": "fake_token_for_testing",
                 "owner": "testowner",
                 "repo": "testrepo",
             },
