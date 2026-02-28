@@ -91,7 +91,7 @@ All LLM integrations share a common abstract interface so that new providers can
                 │─────────────────────│
                 │ + complete()        │  → str
                 │ + stream()          │  → AsyncIterator[str]
-                │ + count_tokens()    │  → int
+                │ + count_tokens()    │  → int 
                 └────────┬────────────┘
                          │
           ┌──────────────┼──────────────┐
@@ -103,7 +103,7 @@ All LLM integrations share a common abstract interface so that new providers can
 │──────────────│ │──────────────│ │───────────────│
 │ complete()   │ │ complete()   │ │ complete()    │
 │ stream()     │ │ stream()     │ │ stream()      │
-│ count_tokens│ │ count_tokens │ │ count_tokens  │
+│ count_tokens()│ │ count_tokens()│ │ count_tokens()│
 └──────────────┘ └──────────────┘ └───────────────┘
 ```
 

@@ -23,7 +23,7 @@ Run this review on every pull request targeting `main`.
 - [ ] Verify tokens are validated on every protected endpoint using a dependency (e.g., FastAPI `Depends`).
 - [ ] Ensure the signing secret is loaded from environment variables — never hard-coded.
 - [ ] Confirm the algorithm is explicitly set (e.g., `HS256`) to prevent algorithm-confusion attacks.
-- [ ] Check that token expiry (`exp`) is enforced and lifetime is reasonable (≤ 30 minutes for access tokens).
+- [ ] Check that token expiry (`exp`) is enforced and lifetimes are reasonable (≤ 15 minutes for access tokens, ≤ 7 days for refresh tokens).
 - [ ] Ensure refresh tokens are rotated on use and stored securely (HTTP-only, Secure, SameSite cookies).
 - [ ] Flag any token logged or returned in a response body beyond the initial auth exchange.
 
