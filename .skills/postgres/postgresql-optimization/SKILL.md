@@ -225,23 +225,6 @@ SELECT crypt('password', gen_salt('bf'));      -- Hash passwords
 SELECT similarity('postgresql', 'postgersql'); -- Fuzzy matching
 ```
 
-### Monitoring & Maintenance
-```sql
--- Database size and growth
-SELECT pg_size_pretty(pg_database_size(current_database())) as db_size;
-
--- Table and index sizes
-SELECT schemaname, tablename,
-       pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
-FROM pg_tables 
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
-
--- Index usage statistics
-SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
-FROM pg_stat_user_indexes 
-WHERE idx_scan = 0;  -- Unused indexes
-```
-
 ### PostgreSQL-Specific Optimization Tips
 - **Use EXPLAIN (ANALYZE, BUFFERS)** for detailed query analysis
 - **Configure postgresql.conf** for your workload (OLTP vs OLAP)
@@ -264,6 +247,18 @@ LIMIT 10;
 SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
 FROM pg_stat_user_indexes 
 WHERE idx_scan = 0;
+```
+
+### Database Size & Growth
+```sql
+-- Database size and growth
+SELECT pg_size_pretty(pg_database_size(current_database())) as db_size;
+
+-- Table and index sizes
+SELECT schemaname, tablename,
+       pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
+FROM pg_tables 
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 ```
 
 ### Database Maintenance
