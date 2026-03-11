@@ -3,13 +3,13 @@ from __future__ import annotations
 import logging
 import re
 
-from api.app.providers.anthropic_provider import AnthropicProvider
-from api.app.providers.base import BaseProvider, ProviderResponse
-from api.app.providers.budget import BudgetGuard
-from api.app.providers.config import ProviderConfig
-from api.app.providers.gemini_provider import GeminiProvider
-from api.app.providers.ollama_provider import OllamaProvider
-from api.app.providers.openai_provider import OpenAIProvider
+from app.providers.anthropic_provider import AnthropicProvider
+from app.providers.base import BaseProvider, ProviderResponse
+from app.providers.budget import BudgetGuard
+from app.providers.config import ProviderConfig
+from app.providers.gemini_provider import GeminiProvider
+from app.providers.ollama_provider import OllamaProvider
+from app.providers.openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 

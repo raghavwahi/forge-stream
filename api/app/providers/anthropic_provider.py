@@ -4,8 +4,9 @@ import time
 
 import anthropic
 import backoff
-from api.app.providers.base import BaseProvider, ProviderResponse
-from api.app.providers.config import ProviderConfig
+
+from app.providers.base import BaseProvider, ProviderResponse
+from app.providers.config import ProviderConfig
 
 
 class AnthropicProvider(BaseProvider):
