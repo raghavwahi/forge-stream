@@ -6,11 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.validation import RequestValidationMiddleware
 from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.providers.redis import RedisProvider
 from app.routers.auth import router as auth_router
+from app.routers.github_app import router as github_app_router
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,7 @@ app = FastAPI(title="ForgeStream API", version="0.1.0", lifespan=lifespan)
 _settings = get_settings()
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestValidationMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,6 +75,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(github_app_router)
 
 app.include_router(work_items_router)
 
