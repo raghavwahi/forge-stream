@@ -2,18 +2,19 @@
 
 Strategy
 --------
-1. On every GET/HEAD/OPTIONS request a ``csrf_token`` cookie is set (if absent).
+1. On GET/HEAD/OPTIONS requests a ``csrf_token`` cookie is set only when
+   absent or expired; existing valid tokens are left untouched.
 2. Mutating requests (POST, PUT, PATCH, DELETE) must echo the same token
    in the ``X-CSRF-Token`` request header.
-3. Mismatch or missing header → HTTP 403.
+3. Mismatch, missing header, or expired token → HTTP 403.
 
-Paths under ``/api/v1/auth/`` and ``/api/v1/github-app/webhooks`` are
-excluded because they either handle their own verification or are called
-by external services.
+Paths under ``/api/v1/auth/``, ``/api/v1/github-app/webhooks``,
+``/api/v1/csrf/``, and ``/health`` are excluded because they either handle
+their own verification, are called by external services, or manage the
+token themselves.
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
 import logging
 import os
@@ -21,16 +22,17 @@ import time
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 logger = logging.getLogger(__name__)
 
 _COOKIE_NAME = "csrf_token"
 _HEADER_NAME = "x-csrf-token"
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _EXCLUDE_PREFIXES = (
     "/api/v1/auth/",
     "/api/v1/github-app/webhooks",
+    "/api/v1/csrf/",
     "/health",
 )
 _TOKEN_BYTES = 32
@@ -50,10 +52,16 @@ def _is_valid_token(token: str) -> bool:
         ts = int(ts_str)
     except (ValueError, AttributeError):
         return False
-    return (time.time() - ts) < _MAX_TOKEN_AGE_SECONDS
+    now = time.time()
+    age = now - ts
+    return 0 <= age < _MAX_TOKEN_AGE_SECONDS
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, secure: bool = False) -> None:
+        super().__init__(app)
+        self._secure = secure
+
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
@@ -75,23 +83,24 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 logger.warning(
                     "CSRF validation failed for %s %s", request.method, path
                 )
-                return Response(
-                    content='{"detail":"CSRF token missing or invalid"}',
+                return JSONResponse(
+                    content={"detail": "CSRF token missing or invalid"},
                     status_code=403,
-                    media_type="application/json",
                 )
 
         response = await call_next(request)
 
-        # Refresh or set the cookie on safe requests
-        if request.method in _SAFE_METHODS or not cookie_token:
+        # Set or refresh the cookie on safe requests only when missing or expired.
+        if request.method in _SAFE_METHODS and (
+            not cookie_token or not _is_valid_token(cookie_token)
+        ):
             new_token = _generate_token()
             response.set_cookie(
                 key=_COOKIE_NAME,
                 value=new_token,
                 httponly=False,   # must be readable by JS
                 samesite="strict",
-                secure=False,     # set True in production behind TLS
+                secure=self._secure,
                 max_age=_MAX_TOKEN_AGE_SECONDS,
                 path="/",
             )
