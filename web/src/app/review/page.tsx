@@ -1,257 +1,283 @@
-"use client";
+'use client'
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { useCreateRepo, type ProposedItem, type CreationProgress } from "@/hooks/use-api";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
   CardFooter,
-} from "@/components/ui/card";
-import { toast } from "sonner";
-import { Sparkles, Trash2, ArrowLeft } from "lucide-react";
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { toast } from 'sonner'
+import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink } from 'lucide-react'
+import { WorkItemTree } from '@/components/WorkItemTree'
+import { GitHubConfigForm } from '@/components/GitHubConfigForm'
+import type { WorkItem } from '@/types/api'
 
-function readSessionItems(): ProposedItem[] {
-  if (typeof window === "undefined") return [];
-  const raw = sessionStorage.getItem("forgestream_items");
-  if (!raw) return [];
+type Step = 'review' | 'github' | 'success'
+
+interface CreatedIssue {
+  title: string
+  url: string
+  number: number
+}
+
+function readSessionItems(): WorkItem[] {
+  if (typeof window === 'undefined') return []
+  const raw = sessionStorage.getItem('forgestream_items')
+  if (!raw) return []
   try {
-    return JSON.parse(raw) as ProposedItem[];
+    return JSON.parse(raw) as WorkItem[]
   } catch {
-    sessionStorage.removeItem("forgestream_items");
-    return [];
+    sessionStorage.removeItem('forgestream_items')
+    return []
   }
 }
 
+function countItems(items: WorkItem[]): number {
+  return items.reduce((acc, item) => acc + 1 + countItems(item.children), 0)
+}
+
+function collectTitles(items: WorkItem[]): Set<string> {
+  const titles = new Set<string>()
+  const visit = (item: WorkItem) => {
+    titles.add(item.title)
+    item.children.forEach(visit)
+  }
+  items.forEach(visit)
+  return titles
+}
+
 export default function ReviewPage() {
-  const router = useRouter();
-  const createRepo = useCreateRepo();
+  const router = useRouter()
+  const [step, setStep] = useState<Step>('review')
+  const [items, setItems] = useState<WorkItem[]>(() => readSessionItems())
+  const [selectedTitles, setSelectedTitles] = useState<Set<string>>(
+    () => collectTitles(readSessionItems()),
+  )
+  const [githubConfig, setGithubConfig] = useState({
+    token: '',
+    owner: '',
+    repo: '',
+  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createdIssues, setCreatedIssues] = useState<CreatedIssue[]>([])
 
-  const [items, setItems] = useState<ProposedItem[]>(() => readSessionItems());
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(readSessionItems().map((i) => i.id))
-  );
-  const [progress, setProgress] = useState<CreationProgress | null>(null);
+  const totalCount = countItems(items)
 
-  const toggleItem = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (selected.size === items.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(items.map((i) => i.id)));
-    }
-  };
-
-  const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
+  const handleToggleSelect = useCallback((item: WorkItem) => {
+    setSelectedTitles((prev) => {
+      const next = new Set(prev)
+      if (next.has(item.title)) {
+        next.delete(item.title)
+      } else {
+        next.add(item.title)
+      }
+      return next
+    })
+  }, [])
 
   const handleEnhance = useCallback(
-    (id: string) => {
-      toast.info(`Enhancing item: ${items.find((i) => i.id === id)?.title}`);
-      // In a full implementation this would call an API to expand/improve the item
+    (original: WorkItem, enhanced: WorkItem) => {
+      const replace = (list: WorkItem[]): WorkItem[] =>
+        list.map((i) =>
+          i.title === original.title
+            ? { ...enhanced, children: replace(i.children) }
+            : { ...i, children: replace(i.children) },
+        )
+      setItems((prev) => replace(prev))
+      setSelectedTitles((prev) => {
+        const next = new Set(prev)
+        if (next.has(original.title)) {
+          next.delete(original.title)
+          next.add(enhanced.title)
+        }
+        return next
+      })
     },
-    [items]
-  );
+    [],
+  )
 
-  const handleCreate = () => {
-    const selectedItems = items.filter((i) => selected.has(i.id));
-    if (selectedItems.length === 0) {
-      toast.error("Select at least one item to create.");
-      return;
+  const handleSelectAll = useCallback(() => {
+    setSelectedTitles(collectTitles(items))
+  }, [items])
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedTitles(new Set())
+  }, [])
+
+  const handleSubmitIssues = async () => {
+    if (!githubConfig.token || !githubConfig.owner || !githubConfig.repo) {
+      toast.error('Please fill in all GitHub fields.')
+      return
     }
+    setIsSubmitting(true)
+    try {
+      const response = await fetch('/api/v1/github-app/create-issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: githubConfig.token,
+          owner: githubConfig.owner,
+          repo: githubConfig.repo,
+          titles: Array.from(selectedTitles),
+        }),
+      })
+      if (!response.ok) throw new Error('Failed to create issues')
+      const data = await response.json()
+      setCreatedIssues(data.issues ?? [])
+      setStep('success')
+    } catch {
+      toast.error(
+        'Failed to create GitHub issues. Check your token and try again.',
+      )
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
 
-    setProgress({ step: "Initializing…", progress: 0, done: false });
+  // ─── Step: Success ──────────────────────────────────────────────────────────
 
-    createRepo.mutate(
-      { items: selectedItems },
-      {
-        onSuccess: (data) => {
-          setProgress({
-            step: "Complete!",
-            progress: 100,
-            done: true,
-            repo_url: data.repo_url,
-          });
-          toast.success("Repository created successfully!");
-        },
-        onError: () => {
-          setProgress({
-            step: "Failed",
-            progress: 0,
-            done: true,
-            error: "Creation failed. Please try again.",
-          });
-          toast.error("Repository creation failed.");
-        },
-      }
-    );
-  };
-
-  if (progress) {
+  if (step === 'success') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <Card className="w-full max-w-lg">
           <CardHeader>
-            <CardTitle>
-              {progress.error
-                ? "Creation Failed"
-                : progress.done
-                  ? "🎉 Repository Created!"
-                  : "Creating Repository…"}
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Issues Created!
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4">
-            <Progress value={progress.progress} />
-            <p className="text-sm text-muted-foreground">{progress.step}</p>
-            {progress.repo_url && (
-              <a
-                href={progress.repo_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium text-primary underline"
-              >
-                Open repository →
-              </a>
-            )}
-            {progress.error && (
-              <p className="text-sm text-destructive">{progress.error}</p>
-            )}
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {createdIssues.length} issue
+              {createdIssues.length !== 1 ? 's' : ''} created in{' '}
+              <strong>
+                {githubConfig.owner}/{githubConfig.repo}
+              </strong>
+              .
+            </p>
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {createdIssues.map((issue) => (
+                <a
+                  key={issue.number}
+                  href={issue.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-primary underline"
+                >
+                  <ExternalLink className="h-3 w-3 shrink-0" />
+                  #{issue.number} {issue.title}
+                </a>
+              ))}
+            </div>
           </CardContent>
-          {progress.done && (
-            <CardFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setProgress(null);
-                  if (!progress.error) router.push("/");
-                }}
-              >
-                {progress.error ? "Try Again" : "Back to Dashboard"}
-              </Button>
-            </CardFooter>
-          )}
+          <CardFooter>
+            <Button variant="outline" onClick={() => router.push('/')}>
+              Back to Dashboard
+            </Button>
+          </CardFooter>
         </Card>
       </div>
-    );
+    )
   }
 
-  return (
-    <div className="flex min-h-screen justify-center bg-background p-4">
-      <div className="w-full max-w-3xl py-10">
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+  // ─── Step: GitHub Config ────────────────────────────────────────────────────
+
+  if (step === 'github') {
+    return (
+      <div className="flex min-h-screen justify-center bg-background p-4">
+        <div className="w-full max-w-lg py-10">
+          <div className="mb-6 flex items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Back to dashboard"
-              onClick={() => router.push("/")}
+              onClick={() => setStep('review')}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">Review Proposed Items</h1>
+              <h1 className="text-2xl font-bold">GitHub Configuration</h1>
               <p className="text-sm text-muted-foreground">
-                {selected.size} of {items.length} selected
+                Connect to your repository to create {selectedTitles.size} issue
+                {selectedTitles.size !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleAll}
-              disabled={items.length === 0}
-            >
-              {items.length > 0 && selected.size === items.length
-                ? "Deselect All"
-                : "Select All"}
-            </Button>
+
+          <Card>
+            <CardContent className="pt-6">
+              <GitHubConfigForm
+                value={githubConfig}
+                onChange={setGithubConfig}
+                isLoading={isSubmitting}
+              />
+            </CardContent>
+            <CardFooter className="flex justify-end">
+              <Button onClick={handleSubmitIssues} disabled={isSubmitting}>
+                {isSubmitting ? 'Creating Issues…' : 'Create Issues'}
+                {!isSubmitting && <ArrowRight className="ml-2 h-4 w-4" />}
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Step: Review ───────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex min-h-screen justify-center bg-background p-4">
+      <div className="w-full max-w-3xl py-10">
+        <div className="mb-6 flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.push('/')}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">Review Work Items</h1>
+            <p className="text-sm text-muted-foreground">
+              Enhance or deselect items before creating GitHub issues
+            </p>
           </div>
         </div>
 
-        <div className="grid gap-3">
-          {items.map((item) => (
-            <Card
-              key={item.id}
-              className={`transition-colors ${
-                selected.has(item.id) ? "border-primary/40" : "opacity-60"
-              }`}
-            >
-              <CardContent className="flex items-start gap-4 p-4">
-                <Checkbox
-                  checked={selected.has(item.id)}
-                  onChange={() => toggleItem(item.id)}
-                  className="mt-1"
-                  aria-label={`Select ${item.title}`}
-                />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{item.title}</span>
-                    <Badge variant="secondary">{item.type}</Badge>
-                  </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {item.description}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleEnhance(item.id)}
-                    aria-label={`Enhance ${item.title}`}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(item.id)}
-                    aria-label={`Delete ${item.title}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        {items.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center text-muted-foreground">
+              No items to review. Go back and generate a plan first.
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <WorkItemTree
+              items={items}
+              selectedItems={selectedTitles}
+              onToggleSelect={handleToggleSelect}
+              onEnhance={handleEnhance}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
+              totalCount={totalCount}
+            />
 
-          {items.length === 0 && (
-            <Card>
-              <CardContent className="p-8 text-center text-muted-foreground">
-                No items to review. Go back and generate a new plan.
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {items.length > 0 && (
-          <div className="mt-6 flex justify-end">
-            <Button onClick={handleCreate} disabled={createRepo.isPending}>
-              {createRepo.isPending ? "Creating…" : "Create Repository"}
-            </Button>
-          </div>
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={() => setStep('github')}
+                disabled={selectedTitles.size === 0}
+              >
+                Continue to GitHub
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </>
         )}
       </div>
     </div>
-  );
+  )
 }
