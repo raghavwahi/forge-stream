@@ -1,9 +1,10 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
 
 -- Users
 CREATE TABLE users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email           VARCHAR(255) UNIQUE NOT NULL,
+    email           CITEXT UNIQUE NOT NULL,
     name            VARCHAR(255) NOT NULL,
     avatar_url      TEXT,
     password_hash   TEXT,
@@ -29,7 +30,7 @@ CREATE TABLE refresh_tokens (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
+CREATE UNIQUE INDEX idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
 CREATE INDEX idx_refresh_tokens_family_id ON refresh_tokens (family_id);
 
@@ -43,7 +44,7 @@ CREATE TABLE password_reset_tokens (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_password_reset_token_hash ON password_reset_tokens (token_hash);
+CREATE UNIQUE INDEX idx_password_reset_token_hash ON password_reset_tokens (token_hash);
 CREATE INDEX idx_password_reset_user_id ON password_reset_tokens (user_id);
 
 -- OAuth accounts (GitHub account linking)

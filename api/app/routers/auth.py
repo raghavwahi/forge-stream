@@ -99,7 +99,7 @@ async def github_auth_url(
     return await service.get_github_auth_url()
 
 
-@router.post("/github/callback", response_model=AuthResponse)
+@router.get("/github/callback", response_model=AuthResponse)
 async def github_callback(
     code: str,
     state: str,

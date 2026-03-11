@@ -22,18 +22,21 @@ class DatabaseProvider(BaseDatabaseProvider):
             await self._pool.close()
 
     async def fetch_one(self, query: str, *args: Any) -> dict | None:
-        assert self._pool is not None
+        if self._pool is None:
+            raise RuntimeError("DatabaseProvider is not connected")
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *args)
             return dict(row) if row else None
 
     async def fetch_all(self, query: str, *args: Any) -> list[dict]:
-        assert self._pool is not None
+        if self._pool is None:
+            raise RuntimeError("DatabaseProvider is not connected")
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(query, *args)
             return [dict(r) for r in rows]
 
     async def execute(self, query: str, *args: Any) -> str:
-        assert self._pool is not None
+        if self._pool is None:
+            raise RuntimeError("DatabaseProvider is not connected")
         async with self._pool.acquire() as conn:
             return await conn.execute(query, *args)
