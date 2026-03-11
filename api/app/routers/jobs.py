@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -24,10 +25,10 @@ def _get_queue(redis: RedisProvider = Depends(get_redis_provider)) -> JobQueue:
 async def enqueue_job(
     body: EnqueueJobRequest,
     queue: JobQueue = Depends(_get_queue),
-    _: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> JobStatusResponse:
     """Enqueue a background job and return its initial status."""
-    job = Job(type=body.type, payload=body.payload)
+    job = Job(type=body.type, payload=body.payload, owner_user_id=current_user.id)
     await queue.enqueue(job)
     return JobStatusResponse(
         id=job.id,
@@ -39,9 +40,9 @@ async def enqueue_job(
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
 async def get_job_status(
-    job_id: str,
+    job_id: uuid.UUID,
     queue: JobQueue = Depends(_get_queue),
-    _: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> JobStatusResponse:
     """Return the current status of a job by ID."""
     job = await queue.get_status(job_id)
@@ -49,6 +50,11 @@ async def get_job_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
+        )
+    if job.owner_user_id is not None and job.owner_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
         )
     return JobStatusResponse(
         id=job.id,

@@ -11,6 +11,8 @@ from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.providers.redis import RedisProvider
 from app.routers.auth import router as auth_router
+from app.routers.jobs import router as jobs_router
+from app.routers.work_items import router as work_items_router
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/v1")
+
+app.include_router(jobs_router)
 
 app.include_router(work_items_router)
 

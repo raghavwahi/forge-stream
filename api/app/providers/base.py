@@ -43,6 +43,24 @@ class BaseCacheProvider(ABC):
     @abstractmethod
     async def delete(self, key: str) -> None: ...
 
+    @abstractmethod
+    async def lpush(self, key: str, *values: str) -> int: ...
+
+    @abstractmethod
+    async def brpop(
+        self, keys: list[str], timeout: int
+    ) -> tuple[str, str] | None: ...
+
+    @abstractmethod
+    async def set_with_lpush(
+        self,
+        data_key: str,
+        data_value: str,
+        queue_key: str,
+        member: str,
+        ttl: int,
+    ) -> None: ...
+
 
 class BaseEmailProvider(ABC):
     @abstractmethod

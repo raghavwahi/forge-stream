@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -23,12 +23,13 @@ class JobStatus(str, Enum):
 
 
 class Job(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
     type: JobType
     payload: dict[str, Any] = Field(default_factory=dict)
     status: JobStatus = JobStatus.PENDING
-    created_at: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat()
+    owner_user_id: uuid.UUID | None = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
     )
     error: str | None = None
     result: dict[str, Any] | None = None
@@ -40,9 +41,9 @@ class EnqueueJobRequest(BaseModel):
 
 
 class JobStatusResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     type: JobType
     status: JobStatus
     error: str | None = None
     result: dict[str, Any] | None = None
-    created_at: str
+    created_at: datetime
