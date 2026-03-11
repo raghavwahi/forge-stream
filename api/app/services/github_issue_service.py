@@ -186,12 +186,11 @@ class GitHubIssueService:
                 if not resp.is_success:
                     break
                 ctx.label_cache.update(lbl["name"] for lbl in resp.json())
-                next_url: str | None = None
+                url = None
                 for part in resp.headers.get("Link", "").split(","):
                     if 'rel="next"' in part:
-                        next_url = part.split(";")[0].strip().strip("<>")
+                        url = part.split(";")[0].strip().strip("<>")
                         break
-                url = next_url
                 params = {}
 
             # Create root-level items in parallel
