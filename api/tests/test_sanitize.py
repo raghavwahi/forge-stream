@@ -1,8 +1,6 @@
 """Unit tests for sanitize utility functions."""
 from __future__ import annotations
 
-import pytest
-
 from app.middleware.sanitize import is_safe_url, sanitize_filename, sanitize_string
 
 

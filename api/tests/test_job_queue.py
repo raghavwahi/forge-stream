@@ -1,13 +1,12 @@
 """Unit tests for JobQueue (Redis-backed job queue)."""
 from __future__ import annotations
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.schemas.jobs import Job, JobStatus, JobType
-from app.workers.job_queue import JobQueue, _JOB_PREFIX, _QUEUE_KEY
+from app.workers.job_queue import _QUEUE_KEY, JobQueue
 
 
 def _make_redis() -> MagicMock:
