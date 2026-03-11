@@ -6,12 +6,17 @@ ultimately reaching the local Ollama instance.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
-from app.providers.auto import AutoProvider, estimate_complexity, _HIGH_COMPLEXITY_SCORE
-from app.providers.base import BaseProvider, ProviderResponse
-from app.providers.budget import BudgetGuard
-from app.providers.config import ProviderConfig
+from api.app.providers.auto import (
+    _HIGH_COMPLEXITY_SCORE,
+    AutoProvider,
+    estimate_complexity,
+)
+from api.app.providers.base import BaseProvider, ProviderResponse
+from api.app.providers.budget import BudgetGuard
+from api.app.providers.config import ProviderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +88,11 @@ class AutoRouter(AutoProvider):
                 self._budget.record(response.total_tokens)
                 self.usage.record(response.prompt_tokens, response.completion_tokens)
                 return response
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
+                # Record this failed attempt so it still consumes request budget.
+                self._budget.record(0)
                 logger.warning(
                     "Provider %s failed (%s), trying next in chain",
                     provider.provider_name,
