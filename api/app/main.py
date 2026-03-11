@@ -1,16 +1,19 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.providers.budget import BudgetExceededError
 from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.providers.redis import RedisProvider
 from app.routers.auth import router as auth_router
+from app.routers.work_items import router as work_items_router
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,16 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 
 app.include_router(work_items_router)
+
+
+class GenerateRequest(BaseModel):
+    prompt: str = Field(description="User prompt")
+    model: str = Field(default="gpt-4o-mini", description="LLM model identifier")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=2048, gt=0)
+
+
+_auto = None  # LLM auto-provider; initialized via lifespan when keys are configured
 
 
 @app.get("/health")

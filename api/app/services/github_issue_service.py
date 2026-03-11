@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from app.schemas.work_items import CreatedIssue, WorkItem, WorkItemType
+from app.schemas.work_items import CreatedIssue, GitHubConfig, WorkItem, WorkItemType
 
 logger = logging.getLogger(__name__)
 
@@ -59,31 +59,48 @@ class GitHubIssueService:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-    async def _ensure_label(self, ctx: _Context, label: str, type_key: str) -> None:
+    async def _ensure_label(self, ctx: _Context, label: str) -> None:
         """Create label if not already in cache."""
         if label in ctx.label_cache:
             return
-        colour = _LABEL_COLOURS.get(type_key, "ededed")
+        # Use the type-specific colour for known type labels; neutral for custom ones
+        colour = _LABEL_COLOURS.get(label, "ededed")
         try:
             resp = await ctx.client.post(
                 f"{_GH_API}/repos/{ctx.owner}/{ctx.repo}/labels",
                 json={"name": label, "color": colour},
             )
-            if resp.status_code not in (201, 422):  # 422 = already exists
+            if resp.status_code in (201, 422):  # 422 = already exists
+                ctx.label_cache.add(label)
+            else:
                 resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.warning("Could not create label %s: %s", label, exc)
-        ctx.label_cache.add(label)
 
     async def _request_with_retry(
         self, client: httpx.AsyncClient, method: str, url: str, **kwargs: Any
     ) -> httpx.Response:
         for attempt in range(1, _MAX_RETRIES + 1):
-            resp = await client.request(method, url, **kwargs)
+            try:
+                resp = await client.request(method, url, **kwargs)
+            except httpx.RequestError as exc:
+                wait = 2**attempt
+                logger.warning(
+                    "Request error on attempt %d/%d: %s; retrying in %ds",
+                    attempt,
+                    _MAX_RETRIES,
+                    exc,
+                    wait,
+                )
+                if attempt < _MAX_RETRIES:
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+                continue
             if resp.status_code not in _RETRY_STATUSES:
                 resp.raise_for_status()
                 return resp
-            wait = 2 ** attempt
+            wait = 2**attempt
             logger.warning(
                 "GitHub API returned %d (attempt %d/%d), retrying in %ds",
                 resp.status_code,
@@ -91,6 +108,7 @@ class GitHubIssueService:
                 _MAX_RETRIES,
                 wait,
             )
+            await resp.aclose()
             if attempt < _MAX_RETRIES:
                 await asyncio.sleep(wait)
         resp.raise_for_status()
@@ -112,14 +130,18 @@ class GitHubIssueService:
 
         # Ensure all labels exist
         await asyncio.gather(
-            *[self._ensure_label(ctx, lbl, type_label) for lbl in all_labels]
+            *[self._ensure_label(ctx, lbl) for lbl in all_labels]
         )
 
         resp = await self._request_with_retry(
             ctx.client,
             "POST",
             f"{_GH_API}/repos/{ctx.owner}/{ctx.repo}/issues",
-            json={"title": item.title, "body": self._build_body(item), "labels": all_labels},
+            json={
+                "title": item.title,
+                "body": self._build_body(item),
+                "labels": all_labels,
+            },
         )
         data = resp.json()
 
@@ -144,25 +166,32 @@ class GitHubIssueService:
 
     async def create_issues(
         self,
-        token: str,
-        owner: str,
-        repo: str,
+        config: GitHubConfig,
         items: list[WorkItem],
     ) -> list[CreatedIssue]:
         """Create GitHub issues for all root-level WorkItems and their children."""
-        # Pre-populate label cache from existing labels
+        token = config.token.get_secret_value()
         async with httpx.AsyncClient(
             headers=self._headers(token), timeout=30
         ) as client:
-            ctx = _Context(client=client, owner=owner, repo=repo)
+            ctx = _Context(client=client, owner=config.owner, repo=config.repo)
 
-            # Fetch existing labels once to avoid 422s
-            resp = await client.get(
-                f"{_GH_API}/repos/{owner}/{repo}/labels",
-                params={"per_page": 100},
+            # Fetch all existing labels (paginated) to pre-populate the cache
+            url: str | None = (
+                f"{_GH_API}/repos/{config.owner}/{config.repo}/labels"
             )
-            if resp.is_success:
-                ctx.label_cache = {lbl["name"] for lbl in resp.json()}
+            params: dict[str, Any] = {"per_page": 100}
+            while url:
+                resp = await client.get(url, params=params)
+                if not resp.is_success:
+                    break
+                ctx.label_cache.update(lbl["name"] for lbl in resp.json())
+                url = None
+                for part in resp.headers.get("Link", "").split(","):
+                    if 'rel="next"' in part:
+                        url = part.split(";")[0].strip().strip("<>")
+                        break
+                params = {}
 
             # Create root-level items in parallel
             results = await asyncio.gather(
