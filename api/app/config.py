@@ -57,6 +57,19 @@ class GitHubOAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 
 
+class ValidationSettings(BaseSettings):
+    max_body_size_bytes: int = 10 * 1024 * 1024  # 10 MB
+    allowed_content_types: list[str] = Field(
+        default_factory=lambda: [
+            "application/json",
+            "application/x-www-form-urlencoded",
+            "multipart/form-data",
+        ]
+    )
+
+    model_config = SettingsConfigDict(env_prefix="VALIDATION_")
+
+
 class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "info"
@@ -71,6 +84,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
+    validation: ValidationSettings = Field(default_factory=ValidationSettings)
 
     @property
     def cors_origins(self) -> list[str]:
