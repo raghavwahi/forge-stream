@@ -11,8 +11,10 @@ class RedisProvider(BaseCacheProvider):
         self._client: aioredis.Redis | None = None
 
     @property
-    def client(self) -> aioredis.Redis | None:
+    def client(self) -> aioredis.Redis:
         """Return the underlying aioredis client for advanced operations."""
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         return self._client
 
     async def connect(self) -> None:
