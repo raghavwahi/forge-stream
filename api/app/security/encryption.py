@@ -11,7 +11,6 @@ a 256-bit AES key from the master secret.
 
 import base64
 import os
-from typing import Optional
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
@@ -204,4 +203,4 @@ class EncryptionManager:
         Returns:
             URL-safe base64 encoded 32-byte random value (43 characters).
         """
-        return base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8")
+        return base64.urlsafe_b64encode(os.urandom(32)).decode("utf-8").rstrip("=")

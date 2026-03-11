@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -18,7 +17,7 @@ class PromptTemplate:
     temperature: float = 0.7
 
     def format_user(self, **kwargs) -> str:
-        """Format user message with variables, raising ValueError for missing required vars."""
+        """Format user message with variables, raising ValueError for missing vars."""
         missing = [v for v in self.required_vars if v not in kwargs]
         if missing:
             raise ValueError(f"Missing required template variables: {missing}")
