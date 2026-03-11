@@ -10,6 +10,11 @@ class RedisProvider(BaseCacheProvider):
         self._db = db
         self._client: aioredis.Redis | None = None
 
+    @property
+    def client(self) -> aioredis.Redis | None:
+        """Return the underlying aioredis client for advanced operations."""
+        return self._client
+
     async def connect(self) -> None:
         self._client = aioredis.Redis(
             host=self._host, port=self._port, db=self._db

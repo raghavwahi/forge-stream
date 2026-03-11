@@ -57,6 +57,39 @@ class GitHubOAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 
 
+class EncryptionSettings(BaseSettings):
+    master_secret: str = Field(
+        ...,
+        description=(
+            "Master secret for AES-256 API key encryption. "
+            "Generate with: python -c \"from api.app.security.encryption import "
+            "EncryptionManager; print(EncryptionManager.generate_master_secret())\""
+        ),
+        min_length=32,
+    )
+
+    model_config = SettingsConfigDict(env_prefix="ENCRYPTION_")
+
+
+class RateLimitSettings(BaseSettings):
+    """Settings for the Redis-backed sliding window rate limiter.
+
+    Environment variables (all optional, defaults shown):
+      RATE_LIMIT_UNAUTHENTICATED  – max requests per window for unauthenticated
+                                    callers (default: 60)
+      RATE_LIMIT_AUTHENTICATED    – max requests per window for authenticated
+                                    callers (default: 200)
+      RATE_LIMIT_WINDOW_SECONDS   – sliding window length in seconds
+                                    (default: 60)
+    """
+
+    unauthenticated: int = 60
+    authenticated: int = 200
+    window_seconds: int = 60
+
+    model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
+
+
 class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "info"
@@ -71,6 +104,8 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
+    encryption: EncryptionSettings = Field(default_factory=EncryptionSettings)
+    rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
 
     @property
     def cors_origins(self) -> list[str]:
