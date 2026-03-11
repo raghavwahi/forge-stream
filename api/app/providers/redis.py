@@ -21,27 +21,32 @@ class RedisProvider(BaseCacheProvider):
             await self._client.close()
 
     async def get(self, key: str) -> str | None:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         val = await self._client.get(key)
         return val.decode() if val else None
 
     async def set(
         self, key: str, value: str, expire_seconds: int | None = None
     ) -> None:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         if expire_seconds:
             await self._client.set(key, value, ex=expire_seconds)
         else:
             await self._client.set(key, value)
 
     async def incr(self, key: str) -> int:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         return await self._client.incr(key)
 
     async def expire(self, key: str, seconds: int) -> None:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         await self._client.expire(key, seconds)
 
     async def delete(self, key: str) -> None:
-        assert self._client is not None
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
         await self._client.delete(key)

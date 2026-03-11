@@ -74,15 +74,15 @@ class AuthService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
             )
-        if not user["is_active"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account disabled",
-            )
         if not self._pwd.verify(data.password, user["password_hash"]):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
+            )
+        if not user["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account disabled",
             )
 
         if self._pwd.needs_rehash(user["password_hash"]):
