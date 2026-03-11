@@ -17,10 +17,11 @@ Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 class Worker:
     """Poll a :class:`JobQueue` and dispatch jobs to registered async handlers."""
 
-    def __init__(self, queue: JobQueue) -> None:
+    def __init__(self, queue: JobQueue, dequeue_timeout: int = 5) -> None:
         self._queue = queue
         self._handlers: dict[JobType, Handler] = {}
         self._running = False
+        self._dequeue_timeout = dequeue_timeout
 
     def register(self, job_type: JobType, handler: Handler) -> None:
         """Register an async handler for a specific :class:`JobType`."""
@@ -31,7 +32,7 @@ class Worker:
 
         Returns True if work was done, False if the queue was empty.
         """
-        job = await self._queue.dequeue(timeout=5)
+        job = await self._queue.dequeue(timeout=self._dequeue_timeout)
         if job is None:
             return False
 

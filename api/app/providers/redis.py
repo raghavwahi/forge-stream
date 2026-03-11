@@ -50,3 +50,34 @@ class RedisProvider(BaseCacheProvider):
         if self._client is None:
             raise RuntimeError("RedisProvider is not connected")
         await self._client.delete(key)
+
+    async def lpush(self, key: str, *values: str) -> int:
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
+        return await self._client.lpush(key, *values)
+
+    async def brpop(
+        self, keys: list[str], timeout: int
+    ) -> tuple[str, str] | None:
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
+        result = await self._client.brpop(keys, timeout=timeout)
+        if result is None:
+            return None
+        key, value = result
+        return key.decode(), value.decode()
+
+    async def set_with_lpush(
+        self,
+        data_key: str,
+        data_value: str,
+        queue_key: str,
+        member: str,
+        ttl: int,
+    ) -> None:
+        if self._client is None:
+            raise RuntimeError("RedisProvider is not connected")
+        pipe = self._client.pipeline()
+        pipe.set(data_key, data_value, ex=ttl)
+        pipe.lpush(queue_key, member)
+        await pipe.execute()
