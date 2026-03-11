@@ -24,12 +24,12 @@ class RetryConfig:
 
     def __init__(
         self,
-        max_json_retries: int = 3,
+        max_attempts: int = 3,
         initial_backoff_seconds: float = 1.0,
         backoff_multiplier: float = 2.0,
         max_backoff_seconds: float = 30.0,
     ):
-        self.max_json_retries = max_json_retries
+        self.max_attempts = max_attempts
         self.initial_backoff_seconds = initial_backoff_seconds
         self.backoff_multiplier = backoff_multiplier
         self.max_backoff_seconds = max_backoff_seconds
@@ -78,7 +78,7 @@ class LLMRetryHandler:
         last_response: str | None = None
         current_prompt = prompt
 
-        for attempt in range(self.config.max_json_retries + 1):
+        for attempt in range(self.config.max_attempts):
             if attempt > 0:
                 wait = min(
                     self.config.initial_backoff_seconds
@@ -86,9 +86,10 @@ class LLMRetryHandler:
                     self.config.max_backoff_seconds,
                 )
                 logger.warning(
-                    "LLM JSON validation failed (attempt %d/%d) – retrying in %.1fs. Error: %s",
+                    "LLM JSON validation failed (attempt %d/%d) – "
+                    "retrying in %.1fs. Error: %s",
                     attempt,
-                    self.config.max_json_retries + 1,
+                    self.config.max_attempts,
                     wait,
                     last_error,
                 )
@@ -105,15 +106,18 @@ class LLMRetryHandler:
 
             try:
                 response_text = await llm_call(current_prompt)
-                result = LLMResponseValidator.validate_with_repair(response_text, schema)
+                result = LLMResponseValidator.validate_with_repair(
+                    response_text, schema
+                )
                 if result.success:
                     if attempt > 0:
                         logger.info(
                             "LLM call succeeded on attempt %d/%d after retry",
                             attempt + 1,
-                            self.config.max_json_retries + 1,
+                            self.config.max_attempts,
                         )
-                    return result.model  # type: ignore[return-value]
+                    assert result.model is not None
+                    return result.model
                 else:
                     last_error = result.error
                     last_response = response_text
@@ -127,6 +131,6 @@ class LLMRetryHandler:
                 )
 
         raise ValueError(
-            f"LLM call failed after {self.config.max_json_retries + 1} attempts. "
+            f"LLM call failed after {self.config.max_attempts} attempts. "
             f"Last error: {last_error}"
         )

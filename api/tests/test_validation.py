@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import json
-import pytest
 
-from app.providers.validation import LLMResponseValidator, ValidationResult
-from app.schemas.work_items import WorkItem, WorkItemHierarchy, WorkItemType
-
+from app.providers.validation import LLMResponseValidator
+from app.schemas.work_items import WorkItemHierarchy
 
 # ---------------------------------------------------------------------------
 # TestExtractJson
@@ -19,7 +17,10 @@ class TestExtractJson:
         assert LLMResponseValidator.extract_json(raw) == raw
 
     def test_plain_json_array(self):
-        raw = '[{"type": "epic", "title": "T", "description": "", "labels": [], "children": []}]'
+        raw = (
+            '[{"type": "epic", "title": "T", "description": "",'
+            ' "labels": [], "children": []}]'
+        )
         assert LLMResponseValidator.extract_json(raw) == raw
 
     def test_markdown_fence_json(self):
@@ -84,7 +85,9 @@ _VALID_HIERARCHY = {
 
 class TestValidate:
     def test_valid_response(self):
-        result = LLMResponseValidator.validate(json.dumps(_VALID_HIERARCHY), WorkItemHierarchy)
+        result = LLMResponseValidator.validate(
+            json.dumps(_VALID_HIERARCHY), WorkItemHierarchy
+        )
         assert result.success is True
         assert result.model is not None
         assert len(result.model.items) == 1
@@ -118,8 +121,21 @@ class TestValidateWithRepair:
         assert result.success is True
 
     def test_trailing_comma_repaired(self):
-        raw_with_comma = '{"items": [{"type": "epic", "title": "T", "description": "", "labels": [], "children": []},]}'
-        result = LLMResponseValidator.validate_with_repair(raw_with_comma, WorkItemHierarchy)
+        base = {
+            "items": [
+                {
+                    "type": "epic",
+                    "title": "T",
+                    "description": "",
+                    "labels": [],
+                    "children": [],
+                }
+            ]
+        }
+        raw_with_comma = json.dumps(base).replace("}]}", "},]}")
+        result = LLMResponseValidator.validate_with_repair(
+            raw_with_comma, WorkItemHierarchy
+        )
         assert result.success is True
         assert result.attempts == 2  # needed repair
 

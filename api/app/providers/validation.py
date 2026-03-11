@@ -63,11 +63,13 @@ class LLMResponseValidator:
         if fence_generic:
             return fence_generic.group(1).strip()
 
-        # Strategy 4: bracket matching — find first { or [
+        # Strategy 4: bracket matching — find earliest { or [ in the text
+        candidates = []
         for start_char, end_char in [("{", "}"), ("[", "]")]:
-            start_idx = text.find(start_char)
-            if start_idx == -1:
-                continue
+            pos = text.find(start_char)
+            if pos != -1:
+                candidates.append((pos, start_char, end_char))
+        for start_idx, start_char, end_char in sorted(candidates):
             depth = 0
             in_string = False
             escape_next = False
@@ -96,11 +98,53 @@ class LLMResponseValidator:
         """
         Attempt common JSON repairs:
         - Remove trailing commas before } or ]
-        - Normalize single-quoted strings (simple cases only)
+
+        Scans the string while tracking JSON string literals and escape
+        sequences so that trailing-comma removal only applies outside of
+        strings, avoiding mutation of valid content such as literal ",}"
+        or ",]" inside a string value.
         """
-        # Remove trailing commas before closing braces/brackets
-        repaired = re.sub(r",\s*([}\]])", r"\1", json_str)
-        return repaired
+        out: list[str] = []
+        in_string = False
+        escape_next = False
+        i = 0
+        length = len(json_str)
+
+        while i < length:
+            ch = json_str[i]
+
+            if escape_next:
+                out.append(ch)
+                escape_next = False
+                i += 1
+                continue
+
+            if ch == "\\" and in_string:
+                escape_next = True
+                out.append(ch)
+                i += 1
+                continue
+
+            if ch == '"':
+                in_string = not in_string
+                out.append(ch)
+                i += 1
+                continue
+
+            if not in_string and ch == ",":
+                # Look ahead to next non-whitespace character
+                j = i + 1
+                while j < length and json_str[j] in (" ", "\t", "\r", "\n"):
+                    j += 1
+                if j < length and json_str[j] in ("}", "]"):
+                    # Skip trailing comma; closing bracket handled next iteration
+                    i = j
+                    continue
+
+            out.append(ch)
+            i += 1
+
+        return "".join(out)
 
     @classmethod
     def validate(cls, response_text: str, schema: Type[T]) -> ValidationResult[T]:
