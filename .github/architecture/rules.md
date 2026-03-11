@@ -50,6 +50,8 @@ Agents must only modify files in their owned domains.
 - `e2e/*`
 
 Cross-domain edits are not allowed unless explicitly approved in task scope.
+Approval must come from the PR owner or repository maintainer and be recorded in
+the PR description under a `Cross-domain approval` note listing impacted paths.
 
 ## 3) Small PR policy
 
@@ -58,5 +60,7 @@ Pull requests must remain small and focused.
 Rules:
 
 - Maximum recommended size: **10 files changed**.
+- If a change exceeds this size, split it into smaller PRs unless a repository
+  maintainer explicitly approves a larger scope in the PR description.
 - Each PR should implement **one feature only**.
 - Split larger efforts into multiple sequential PRs.
