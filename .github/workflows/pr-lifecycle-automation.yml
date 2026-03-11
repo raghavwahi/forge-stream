@@ -4,13 +4,21 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
-  pull_request_target:
+  pull_request:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
+
+env:
+  MAX_CONCURRENT_REVIEW_CYCLES: "5"
+  MAX_REVIEW_RETRIES: "5"
+  REVIEW_POLL_ATTEMPTS: "15"
+  REVIEW_POLL_SECONDS: "20"
+  MERGE_LOCK_TTL_MINUTES: "30"
+  INFORMATIONAL_REVIEW_COMMENT_REGEX: "nit|nits|style|formatting|informational|optional|already handled by lint|already handled by linter"
 
 jobs:
   discover-prs:
@@ -95,8 +103,8 @@ jobs:
             core.info(`Approved: ${category.approved.join(", ") || "none"}`);
             core.info(`Skipped (already processing): ${category.skipped.join(", ") || "none"}`);
 
-            // Maximum concurrent review cycles: 5
-            const limited = processable.slice(0, 5);
+            const maxConcurrent = Number(process.env.MAX_CONCURRENT_REVIEW_CYCLES || "5");
+            const limited = processable.slice(0, maxConcurrent);
             core.setOutput("pr_matrix", JSON.stringify(limited));
 
   process-pr:
@@ -104,6 +112,10 @@ jobs:
     needs: discover-prs
     if: ${{ needs.discover-prs.outputs.pr_matrix != '[]' && needs.discover-prs.outputs.pr_matrix != '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -149,45 +161,43 @@ jobs:
               }
             }
 
-            const blocked = retries >= 5;
+            const maxRetries = Number(process.env.MAX_REVIEW_RETRIES || "5");
+            const blocked = retries >= maxRetries;
             core.info(`retry_count=${retries}, blocked=${blocked}`);
             core.setOutput("retry_count", String(retries));
             core.setOutput("blocked", String(blocked));
 
-      - name: Checkout PR branch
-        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
-        uses: actions/checkout@v4
-        with:
-          ref: refs/pull/${{ matrix.pr.number }}/head
-
-      - name: Setup Node
+      - name: Validate draft PR checks
         if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
-        uses: actions/setup-node@v4
+        uses: actions/github-script@v7
         with:
-          node-version: "20"
-          cache: "npm"
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const headSha = "${{ matrix.pr.headSha }}";
 
-      - name: Setup Python
-        if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+            const checks = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: headSha,
+              per_page: 100,
+            });
+            const failedChecks = checks.data.check_runs.filter(
+              (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+            );
+            const pendingChecks = checks.data.check_runs.filter(
+              (check) => !check.conclusion || check.status !== "completed",
+            );
 
-      - name: Validate draft PR branch (lint/build/tests)
-        if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run lint --workspace=web
-          npm run web:build
+            if (failedChecks.length > 0) {
+              core.setFailed(`Draft PR has failing checks: ${failedChecks.map((check) => check.name).join(", ")}`);
+              return;
+            }
 
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-asyncio httpx
-          if [ -d "api/tests" ]; then
-            JWT_SECRET_KEY=test-secret-key \
-            PYTHONPATH="${GITHUB_WORKSPACE}/api" \
-            python -m pytest api/tests/ --ignore=api/tests/test_init_admin.py --ignore=api/tests/test_providers.py
-          fi
+            if (pendingChecks.length > 0) {
+              core.setFailed(`Draft PR has pending checks: ${pendingChecks.map((check) => check.name).join(", ")}`);
+              return;
+            }
 
       - name: Convert draft to ready for review
         if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
@@ -212,6 +222,7 @@ jobs:
             });
 
       - name: Trigger Copilot review
+        id: trigger_review
         if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
         uses: actions/github-script@v7
         with:
@@ -239,9 +250,7 @@ jobs:
               body: "@github-copilot review this PR for bugs, security, performance, maintainability, and missing tests.",
             });
 
-      - name: Wait for review comments
-        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
-        run: sleep 30
+            core.setOutput("triggered_at", new Date().toISOString());
 
       - name: Collect actionable review comments
         id: actionable
@@ -252,6 +261,33 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pull_number = Number("${{ matrix.pr.number }}");
+            const reviewTriggeredAt = new Date("${{ steps.trigger_review.outputs.triggered_at }}");
+            const maxAttempts = Number(process.env.REVIEW_POLL_ATTEMPTS || "15");
+            const waitSeconds = Number(process.env.REVIEW_POLL_SECONDS || "20");
+
+            let reviewsAfterTrigger = [];
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number,
+                per_page: 100,
+              });
+
+              reviewsAfterTrigger = reviews.filter(
+                (review) => new Date(review.submitted_at || review.created_at) >= reviewTriggeredAt,
+              );
+
+              if (reviewsAfterTrigger.length > 0) {
+                core.info(`Review activity detected after trigger on attempt ${attempt}.`);
+                break;
+              }
+
+              if (attempt < maxAttempts) {
+                core.info(`No new review activity yet (attempt ${attempt}/${maxAttempts}); waiting ${waitSeconds}s...`);
+                await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+              }
+            }
 
             const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner,
@@ -260,9 +296,22 @@ jobs:
               per_page: 100,
             });
 
-            const informationalPattern = /(nit|nits|style|formatting|informational|optional|already handled by lint|already handled by linter)/i;
+            let informationalPattern;
+            try {
+              informationalPattern = new RegExp(
+                process.env.INFORMATIONAL_REVIEW_COMMENT_REGEX,
+                "i",
+              );
+            } catch (error) {
+              core.setFailed(`Invalid INFORMATIONAL_REVIEW_COMMENT_REGEX: ${error.message}`);
+              return;
+            }
             const actionable = reviewComments.filter((comment) => {
+              const author = (comment.user?.login || "").toLowerCase();
               if (comment.in_reply_to_id) {
+                return false;
+              }
+              if (!author.includes("copilot")) {
                 return false;
               }
               if (informationalPattern.test(comment.body || "")) {
@@ -273,31 +322,6 @@ jobs:
 
             core.info(`Actionable comments found: ${actionable.length}`);
             core.setOutput("count", String(actionable.length));
-
-      - name: Attempt auto-fix hook
-        if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
-        env:
-          PR_AUTOFIX_COMMAND: ${{ vars.PR_AUTOFIX_COMMAND }}
-        run: |
-          set -euo pipefail
-          if [ -z "${PR_AUTOFIX_COMMAND:-}" ]; then
-            echo "No PR_AUTOFIX_COMMAND variable configured; skipping direct code fix execution."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          bash -lc "$PR_AUTOFIX_COMMAND"
-
-          if git diff --quiet; then
-            echo "Auto-fix hook made no changes."
-            exit 0
-          fi
-
-          git add -A
-          git commit -m "fix(review): resolve Copilot feedback"
-          git push origin HEAD:${{ matrix.pr.headRef }}
 
       - name: Re-trigger Copilot review after fixes
         if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
@@ -312,7 +336,13 @@ jobs:
               owner,
               repo,
               issue_number: pull_number,
-              body: "@github-copilot re-review this PR after automated fixes.",
+              body: [
+                "Actionable Copilot review comments are still open.",
+                "Please apply fixes in this PR branch and re-run review.",
+                "",
+                "Requested commit message format:",
+                "`fix(review): resolve Copilot feedback`",
+              ].join("\n"),
             });
 
       - name: Update retry labels
@@ -349,11 +379,12 @@ jobs:
             }
 
             if (actionableCount > 0) {
+              const maxRetries = Number(process.env.MAX_REVIEW_RETRIES || "5");
               await github.rest.issues.addLabels({
                 owner,
                 repo,
                 issue_number,
-                labels: [`agent-review-retry-${Math.min(retryCount + 1, 5)}`],
+                labels: [`agent-review-retry-${Math.min(retryCount + 1, maxRetries)}`],
               });
             }
 
@@ -383,7 +414,9 @@ jobs:
               ref: pr.head.sha,
               per_page: 100,
             });
-            const failedChecks = checks.data.check_runs.filter((check) => check.conclusion && check.conclusion !== "success");
+            const failedChecks = checks.data.check_runs.filter(
+              (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+            );
             const pendingChecks = checks.data.check_runs.filter((check) => !check.conclusion || check.status !== "completed");
 
             const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
@@ -392,29 +425,46 @@ jobs:
               ref: pr.head.sha,
             });
 
-            const unresolvedThreadsResponse = await github.graphql(
-              `query($owner: String!, $repo: String!, $pullNumber: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $pullNumber) {
-                    reviewThreads(first: 100) {
-                      nodes {
-                        isResolved
-                        isOutdated
+            const unresolvedThreads = [];
+            let hasNextPage = true;
+            let cursor = null;
+
+            while (hasNextPage) {
+              const unresolvedThreadsResponse = await github.graphql(
+                `query($owner: String!, $repo: String!, $pullNumber: Int!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pullNumber) {
+                      reviewThreads(first: 100, after: $cursor) {
+                        nodes {
+                          isResolved
+                          isOutdated
+                        }
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
                       }
                     }
                   }
-                }
-              }`,
-              {
-                owner,
-                repo,
-                pullNumber: pull_number,
-              },
-            );
+                }`,
+                {
+                  owner,
+                  repo,
+                  pullNumber: pull_number,
+                  cursor,
+                },
+              );
 
-            const unresolvedThreads = (unresolvedThreadsResponse.repository.pullRequest.reviewThreads.nodes || []).filter(
-              (thread) => !thread.isResolved && !thread.isOutdated,
-            );
+              const threadConnection = unresolvedThreadsResponse.repository.pullRequest.reviewThreads;
+              for (const thread of threadConnection.nodes || []) {
+                if (!thread.isResolved && !thread.isOutdated) {
+                  unresolvedThreads.push(thread);
+                }
+              }
+
+              hasNextPage = Boolean(threadConnection.pageInfo?.hasNextPage);
+              cursor = threadConnection.pageInfo?.endCursor ?? null;
+            }
 
             const commentsCount = Number("${{ steps.actionable.outputs.count }}");
             const canMerge = (
@@ -449,10 +499,19 @@ jobs:
               per_page: 100,
             });
 
-            const mergeLocked = openPRs.some((pr) =>
-              pr.number !== pull_number &&
-              pr.labels.some((label) => label.name === "agent-merging")
-            );
+            const lockTtlMinutes = Number(process.env.MERGE_LOCK_TTL_MINUTES || "30");
+            const now = new Date();
+            const mergeLocked = openPRs.some((pr) => {
+              if (pr.number === pull_number) {
+                return false;
+              }
+              const hasLock = pr.labels.some((label) => label.name === "agent-merging");
+              if (!hasLock) {
+                return false;
+              }
+              const ageMinutes = (now - new Date(pr.updated_at)) / (1000 * 60);
+              return ageMinutes <= lockTtlMinutes;
+            });
 
             if (mergeLocked) {
               core.info("Another PR is currently merging. Skipping merge for now.");
@@ -523,14 +582,16 @@ jobs:
             const canMerge = "${{ steps.merge_ready.outputs.can_merge || 'false' }}";
             const blocked = "${{ steps.retry_budget.outputs.blocked || 'false' }}";
             const retryCount = Number("${{ steps.retry_budget.outputs.retry_count || '0' }}");
+            const maxRetries = process.env.MAX_REVIEW_RETRIES || "5";
+            const maxConcurrent = process.env.MAX_CONCURRENT_REVIEW_CYCLES || "5";
 
             core.summary
               .addHeading(`PR #${prNumber} lifecycle summary`)
               .addRaw(`- Actionable comments detected: ${actionableCount}\n`)
-              .addRaw(`- Retry count: ${retryCount} / 5\n`)
+              .addRaw(`- Retry count: ${retryCount} / ${maxRetries}\n`)
               .addRaw(`- Blocked by retry budget: ${blocked}\n`)
               .addRaw(`- Merge-ready: ${canMerge}\n`)
-              .addRaw(`- Max review retries configured: 5 (enforced by repeated workflow cycles)\n`)
-              .addRaw(`- Max concurrent review cycles configured: 5\n`)
+              .addRaw(`- Max review retries configured: ${maxRetries} (enforced by repeated workflow cycles)\n`)
+              .addRaw(`- Max concurrent review cycles configured: ${maxConcurrent}\n`)
               .addRaw(`- Max simultaneous merges configured: 1 (agent-merging lock)\n`)
               .write();
