@@ -57,6 +57,14 @@ class GitHubOAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 
 
+class GitHubAppSettings(BaseSettings):
+    app_id: str | None = None
+    private_key: str | None = None
+    webhook_secret: str | None = None
+
+    model_config = SettingsConfigDict(env_prefix="GITHUB_APP_")
+
+
 class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "info"
@@ -71,6 +79,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
+    github_app: GitHubAppSettings = Field(default_factory=GitHubAppSettings)
 
     @property
     def cors_origins(self) -> list[str]:

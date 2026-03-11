@@ -18,3 +18,8 @@ class GitHubAppStatusResponse(BaseModel):
     is_configured: bool
     app_id: str | None = None
     message: str
+
+
+class WebhookAckResponse(BaseModel):
+    received: bool
+    event: str

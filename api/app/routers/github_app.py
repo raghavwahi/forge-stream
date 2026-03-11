@@ -10,6 +10,7 @@ from app.models.github_app import (
     GitHubAppStatusResponse,
     InstallationInfo,
     InstallationTokenResponse,
+    WebhookAckResponse,
 )
 from app.models.user import UserInDB
 from app.services.github_app_service import GitHubAppService
@@ -32,7 +33,10 @@ async def get_app_status(
         )
     return GitHubAppStatusResponse(
         is_configured=False,
-        message="GitHub App is not configured. Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.",
+        message=(
+            "GitHub App is not configured. "
+            "Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY."
+        ),
     )
 
 
@@ -68,7 +72,7 @@ async def list_installations(
     ]
 
 
-@router.get(
+@router.post(
     "/installations/{installation_id}/token",
     response_model=InstallationTokenResponse,
 )
@@ -97,23 +101,33 @@ async def get_installation_token(
     )
 
 
-@router.post("/webhooks", status_code=status.HTTP_200_OK)
+@router.post(
+    "/webhooks",
+    response_model=WebhookAckResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def handle_webhook(
     request: Request,
     service: GitHubAppService = Depends(get_github_app_service),
-) -> dict:
+) -> WebhookAckResponse:
     """Receive GitHub App webhook events. Validates HMAC-SHA256 signature."""
+    if not service.settings.webhook_secret:
+        logger.error("GitHub App webhook secret is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GitHub App webhook secret is not configured",
+        )
+
     payload = await request.body()
     signature = request.headers.get("X-Hub-Signature-256", "")
 
-    if service.settings.webhook_secret:
-        if not service.verify_webhook_signature(payload, signature):
-            logger.warning("Webhook signature verification failed")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid webhook signature",
-            )
+    if not service.verify_webhook_signature(payload, signature):
+        logger.warning("Webhook signature verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook signature",
+        )
 
     event = request.headers.get("X-GitHub-Event", "unknown")
     logger.info("Received GitHub webhook event: %s", event)
-    return {"received": True, "event": event}
+    return WebhookAckResponse(received=True, event=event)
