@@ -15,6 +15,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import re
 import time
 from typing import Any
 
@@ -90,15 +91,30 @@ class GitHubAppService:
     # ------------------------------------------------------------------
 
     async def list_installations(self) -> list[dict[str, Any]]:
-        """List all installations for this GitHub App."""
+        """List all installations for this GitHub App (paginates automatically)."""
         jwt_token = self._generate_jwt()
+        installations: list[dict[str, Any]] = []
+        page = 1
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{_GITHUB_API}/app/installations",
-                headers={**_GITHUB_HEADERS, "Authorization": f"Bearer {jwt_token}"},
-            )
-        self._raise_for_status(response, "list_installations")
-        return response.json()
+            while True:
+                response = await client.get(
+                    f"{_GITHUB_API}/app/installations",
+                    headers={
+                        **_GITHUB_HEADERS,
+                        "Authorization": f"Bearer {jwt_token}",
+                    },
+                    params={"per_page": 100, "page": page},
+                )
+                self._raise_for_status(response, "list_installations")
+                page_items: list[dict[str, Any]] = response.json()
+                if not page_items:
+                    break
+                installations.extend(page_items)
+                link_header = response.headers.get("Link", "")
+                if not re.search(r'rel\s*=\s*"next"', link_header):
+                    break
+                page += 1
+        return installations
 
     async def get_installation_token(self, installation_id: int) -> dict[str, Any]:
         """
@@ -147,12 +163,16 @@ class GitHubAppService:
 
         Args:
             payload: Raw request body bytes.
-            signature: Value from the X-Hub-Signature-256 header (format: 'sha256=<hex>').
+            signature: Value from the X-Hub-Signature-256 header
+                (format: 'sha256=<hex>').
         Returns:
             True if the signature is valid, False otherwise.
         """
         if not self.settings.webhook_secret:
-            logger.warning("Webhook signature check skipped: GITHUB_APP_WEBHOOK_SECRET not set")
+            logger.warning(
+                "Webhook signature check skipped: "
+                "GITHUB_APP_WEBHOOK_SECRET not set"
+            )
             return False
         secret = self.settings.webhook_secret.encode("utf-8")
         expected = "sha256=" + hmac.new(secret, payload, hashlib.sha256).hexdigest()
