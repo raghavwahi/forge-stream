@@ -17,6 +17,7 @@ from app.repositories.user import UserRepository
 from app.security.jwt import JWTManager
 from app.security.password import PasswordManager
 from app.services.auth import AuthService
+from app.services.github_app_service import GitHubAppService
 
 bearer_scheme = HTTPBearer()
 
@@ -145,3 +146,9 @@ async def get_current_user(
         )
 
     return UserInDB(**user)
+
+
+def get_github_app_service(
+    settings: Settings = Depends(get_cached_settings),
+) -> GitHubAppService:
+    return GitHubAppService(settings.github_app)
