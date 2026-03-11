@@ -1,5 +1,77 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# LLM provider base types
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProviderResponse:
+    """Structured response returned by every LLM provider."""
+
+    text: str
+    model: str
+    provider: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    latency_ms: float = 0.0
+
+
+class UsageRecord:
+    """Tracks cumulative token usage across multiple LLM calls."""
+
+    def __init__(self) -> None:
+        self._total_tokens: int = 0
+        self._total_requests: int = 0
+        self.history: list[tuple[int, int]] = []
+
+    def record(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.history.append((prompt_tokens, completion_tokens))
+        self._total_tokens += prompt_tokens + completion_tokens
+        self._total_requests += 1
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    @property
+    def total_requests(self) -> int:
+        return self._total_requests
+
+
+class BaseProvider(ABC):
+    """Abstract base class for all LLM providers."""
+
+    provider_name: str
+
+    def __init__(self) -> None:
+        self.usage = UsageRecord()
+
+    @abstractmethod
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        model: str | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> ProviderResponse: ...
+
+    def get_usage(self) -> dict[str, Any]:
+        return {
+            "total_tokens": self.usage.total_tokens,
+            "total_requests": self.usage.total_requests,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure provider ABCs
+# ---------------------------------------------------------------------------
 
 
 class BaseDatabaseProvider(ABC):
