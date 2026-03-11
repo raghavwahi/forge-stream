@@ -1,28 +1,32 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useRef } from 'react'
-import { Search, ChevronDown, Loader2, GitBranch } from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { useState, useEffect, useRef } from "react";
+import { Search, ChevronDown, Loader2, GitBranch } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { apiFetch } from "@/lib/api";
 
-interface GitHubRepo {
-  id: number
-  name: string
-  full_name: string
-  private: boolean
-  description: string | null
-  html_url: string
-  default_branch: string
-  installation_id: number
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  description: string | null;
+  html_url: string;
+  default_branch: string;
+  installation_id: number;
 }
 
 interface RepositorySelectorProps {
-  installationId: number
-  value: GitHubRepo | null
-  onChange: (repo: GitHubRepo | null) => void
-  disabled?: boolean
+  installationId: number;
+  value: GitHubRepo | null;
+  onChange: (repo: GitHubRepo | null) => void;
+  disabled?: boolean;
 }
+
+const LISTBOX_ID = "repository-selector-listbox";
+const DEBOUNCE_MS = 250;
 
 export function RepositorySelector({
   installationId,
@@ -30,55 +34,61 @@ export function RepositorySelector({
   onChange,
   disabled,
 }: RepositorySelectorProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [repos, setRepos] = useState<GitHubRepo[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch repos when dropdown opens or query changes
+  // Debounce the search query
   useEffect(() => {
-    if (!isOpen) return
+    const timer = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-    const controller = new AbortController()
-    setIsLoading(true)
-    setError(null)
+  // Fetch repos when dropdown opens or debounced query changes
+  useEffect(() => {
+    if (!isOpen) return;
 
-    const url = query
-      ? `/api/v1/repositories/search?installation_id=${installationId}&q=${encodeURIComponent(query)}`
-      : `/api/v1/repositories?installation_id=${installationId}`
+    const controller = new AbortController();
+    setIsLoading(true);
+    setError(null);
 
-    fetch(url, { signal: controller.signal })
-      .then((r) => {
-        if (!r.ok) throw new Error('Failed to load repositories')
-        return r.json()
-      })
+    const path = debouncedQuery
+      ? `/api/v1/repositories/search?installation_id=${installationId}&q=${encodeURIComponent(debouncedQuery)}`
+      : `/api/v1/repositories?installation_id=${installationId}`;
+
+    apiFetch<{ repos: GitHubRepo[] }>(path, { signal: controller.signal })
       .then((data) => setRepos(data.repos ?? []))
-      .catch((err) => {
-        if (err.name !== 'AbortError') setError(err.message)
+      .catch((err: Error) => {
+        if (err.name !== "AbortError") setError(err.message);
       })
-      .finally(() => setIsLoading(false))
+      .finally(() => setIsLoading(false));
 
-    return () => controller.abort()
-  }, [isOpen, query, installationId])
+    return () => controller.abort();
+  }, [isOpen, debouncedQuery, installationId]);
 
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
       }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const handleSelect = (repo: GitHubRepo) => {
-    onChange(repo)
-    setIsOpen(false)
-    setQuery('')
-  }
+    onChange(repo);
+    setIsOpen(false);
+    setQuery("");
+  };
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -86,8 +96,9 @@ export function RepositorySelector({
       <Button
         type="button"
         variant="outline"
-        role="combobox"
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-controls={LISTBOX_ID}
         className="w-full justify-between font-normal"
         disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
@@ -115,6 +126,7 @@ export function RepositorySelector({
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
             <Input
+              aria-label="Search repositories"
               className="h-9 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0"
               placeholder="Search repositories…"
               value={query}
@@ -124,7 +136,12 @@ export function RepositorySelector({
           </div>
 
           {/* Results */}
-          <div className="max-h-64 overflow-y-auto py-1">
+          <div
+            id={LISTBOX_ID}
+            role="listbox"
+            aria-label="Repositories"
+            className="max-h-64 overflow-y-auto py-1"
+          >
             {isLoading && (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -146,6 +163,8 @@ export function RepositorySelector({
                 <button
                   key={repo.id}
                   type="button"
+                  role="option"
+                  aria-selected={value?.id === repo.id}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent focus:bg-accent focus:outline-none"
                   onClick={() => handleSelect(repo)}
                 >
@@ -162,5 +181,5 @@ export function RepositorySelector({
         </div>
       )}
     </div>
-  )
+  );
 }
