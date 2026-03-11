@@ -24,13 +24,13 @@ function WorkItemNode({
       <WorkItemCard
         item={item}
         depth={depth}
-        isSelected={selectedItems.has(item.title)}
+        isSelected={selectedItems.has(item.id)}
         onToggleSelect={onToggleSelect}
         onEnhance={onEnhance}
       />
       {item.children.map((child) => (
         <WorkItemNode
-          key={child.title}
+          key={child.id}
           item={child}
           depth={depth + 1}
           selectedItems={selectedItems}
@@ -80,7 +80,7 @@ export function WorkItemTree({
       <div className="space-y-3">
         {items.map((item) => (
           <WorkItemNode
-            key={item.title}
+            key={item.id}
             item={item}
             depth={0}
             selectedItems={selectedItems}

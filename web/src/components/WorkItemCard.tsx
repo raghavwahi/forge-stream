@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Sparkles, Loader2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { WorkItem } from '@/types/api'
+import { apiFetch } from '@/lib/api'
+import type { RawWorkItem, WorkItem } from '@/types/api'
 
 const TYPE_CONFIG = {
   epic: {
@@ -51,18 +53,24 @@ export function WorkItemCard({
   const handleEnhance = async () => {
     setIsEnhancing(true)
     try {
-      const response = await fetch('/api/v1/work-items/enhance-item', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item: currentItem }),
-      })
-      if (response.ok) {
-        const enhanced: WorkItem = await response.json()
-        setCurrentItem(enhanced)
-        onEnhance(item, enhanced)
+      const data = await apiFetch<{ original: RawWorkItem; enhanced: RawWorkItem }>(
+        '/work-items/enhance-item',
+        {
+          method: 'POST',
+          body: JSON.stringify({ work_item: currentItem }),
+        },
+      )
+      // Preserve the client-side id and existing children (enhance only rewrites
+      // the item's own title/description, not its child structure)
+      const enhanced: WorkItem = {
+        ...data.enhanced,
+        id: item.id,
+        children: currentItem.children,
       }
+      setCurrentItem(enhanced)
+      onEnhance(item, enhanced)
     } catch {
-      // silently fail — toast shown at page level
+      toast.error('Failed to enhance item. Please try again.')
     } finally {
       setIsEnhancing(false)
     }
@@ -76,7 +84,7 @@ export function WorkItemCard({
       <div className="flex items-start gap-3">
         <Checkbox
           checked={isSelected}
-          onCheckedChange={() => onToggleSelect(currentItem)}
+          onChange={() => onToggleSelect(currentItem)}
           className="mt-0.5 shrink-0"
         />
         <div className="flex-1 min-w-0">
