@@ -26,6 +26,7 @@ services:
       resources:
         limits:
           memory: 512m
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -53,6 +54,7 @@ services:
       resources:
         limits:
           memory: 256m
+    restart: unless-stopped
 
   mailpit:
     image: axllent/mailpit
@@ -61,6 +63,11 @@ services:
       - "8025:8025"
     networks:
       - forge-net
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+    restart: unless-stopped
 
   api:
     build:
@@ -77,7 +84,7 @@ services:
       - DB_NAME=forgestream
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET_KEY=dev-secret-change-in-production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-change-in-production}
       - SMTP_HOST=mailpit
       - SMTP_PORT=1025
       - SMTP_USE_TLS=false
@@ -90,7 +97,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import sys, urllib.request; [sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status == 200 else sys.exit(1)]\" 2>/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -114,7 +121,7 @@ services:
       - DB_NAME=forgestream
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET_KEY=dev-secret-change-in-production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-change-in-production}
     networks:
       - forge-net
     depends_on:
