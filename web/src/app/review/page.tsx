@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,14 +14,18 @@ import { toast } from 'sonner'
 import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink } from 'lucide-react'
 import { WorkItemTree } from '@/components/WorkItemTree'
 import { GitHubConfigForm } from '@/components/GitHubConfigForm'
-import type { WorkItem } from '@/types/api'
+import { apiFetch } from '@/lib/api'
+import type { RawWorkItem, WorkItem, CreatedIssue } from '@/types/api'
 
 type Step = 'review' | 'github' | 'success'
 
-interface CreatedIssue {
-  title: string
-  url: string
-  number: number
+/** Recursively assign a stable client-side UUID to every item. */
+function assignIds(items: RawWorkItem[]): WorkItem[] {
+  return items.map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    children: assignIds(item.children),
+  }))
 }
 
 function readSessionItems(): WorkItem[] {
@@ -29,7 +33,7 @@ function readSessionItems(): WorkItem[] {
   const raw = sessionStorage.getItem('forgestream_items')
   if (!raw) return []
   try {
-    return JSON.parse(raw) as WorkItem[]
+    return assignIds(JSON.parse(raw) as RawWorkItem[])
   } catch {
     sessionStorage.removeItem('forgestream_items')
     return []
@@ -40,22 +44,37 @@ function countItems(items: WorkItem[]): number {
   return items.reduce((acc, item) => acc + 1 + countItems(item.children), 0)
 }
 
-function collectTitles(items: WorkItem[]): Set<string> {
-  const titles = new Set<string>()
+function collectIds(items: WorkItem[]): Set<string> {
+  const ids = new Set<string>()
   const visit = (item: WorkItem) => {
-    titles.add(item.title)
+    ids.add(item.id)
     item.children.forEach(visit)
   }
   items.forEach(visit)
-  return titles
+  return ids
+}
+
+/** Return only the items (and children) whose ids are in the set. */
+function filterByIds(items: WorkItem[], ids: Set<string>): WorkItem[] {
+  return items
+    .filter((item) => ids.has(item.id))
+    .map((item) => ({ ...item, children: filterByIds(item.children, ids) }))
 }
 
 export default function ReviewPage() {
   const router = useRouter()
+
+  // Initialise items once; share the same array for the selectedIds initializer
+  // so both states reference the same set of UUIDs.
+  const initItemsRef = useRef<WorkItem[] | null>(null)
+
   const [step, setStep] = useState<Step>('review')
-  const [items, setItems] = useState<WorkItem[]>(() => readSessionItems())
-  const [selectedTitles, setSelectedTitles] = useState<Set<string>>(
-    () => collectTitles(readSessionItems()),
+  const [items, setItems] = useState<WorkItem[]>(() => {
+    initItemsRef.current = readSessionItems()
+    return initItemsRef.current
+  })
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() =>
+    collectIds(initItemsRef.current ?? []),
   )
   const [githubConfig, setGithubConfig] = useState({
     token: '',
@@ -68,12 +87,12 @@ export default function ReviewPage() {
   const totalCount = countItems(items)
 
   const handleToggleSelect = useCallback((item: WorkItem) => {
-    setSelectedTitles((prev) => {
+    setSelectedIds((prev) => {
       const next = new Set(prev)
-      if (next.has(item.title)) {
-        next.delete(item.title)
+      if (next.has(item.id)) {
+        next.delete(item.id)
       } else {
-        next.add(item.title)
+        next.add(item.id)
       }
       return next
     })
@@ -81,31 +100,24 @@ export default function ReviewPage() {
 
   const handleEnhance = useCallback(
     (original: WorkItem, enhanced: WorkItem) => {
+      // The enhanced item preserves the original id, so selection is unaffected.
       const replace = (list: WorkItem[]): WorkItem[] =>
         list.map((i) =>
-          i.title === original.title
+          i.id === original.id
             ? { ...enhanced, children: replace(i.children) }
             : { ...i, children: replace(i.children) },
         )
       setItems((prev) => replace(prev))
-      setSelectedTitles((prev) => {
-        const next = new Set(prev)
-        if (next.has(original.title)) {
-          next.delete(original.title)
-          next.add(enhanced.title)
-        }
-        return next
-      })
     },
     [],
   )
 
   const handleSelectAll = useCallback(() => {
-    setSelectedTitles(collectTitles(items))
+    setSelectedIds(collectIds(items))
   }, [items])
 
   const handleDeselectAll = useCallback(() => {
-    setSelectedTitles(new Set())
+    setSelectedIds(new Set())
   }, [])
 
   const handleSubmitIssues = async () => {
@@ -115,19 +127,22 @@ export default function ReviewPage() {
     }
     setIsSubmitting(true)
     try {
-      const response = await fetch('/api/v1/github-app/create-issues', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: githubConfig.token,
-          owner: githubConfig.owner,
-          repo: githubConfig.repo,
-          titles: Array.from(selectedTitles),
-        }),
-      })
-      if (!response.ok) throw new Error('Failed to create issues')
-      const data = await response.json()
-      setCreatedIssues(data.issues ?? [])
+      const selectedItems = filterByIds(items, selectedIds)
+      const data = await apiFetch<{ created: CreatedIssue[] }>(
+        '/work-items/create-issues',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            github: {
+              token: githubConfig.token,
+              owner: githubConfig.owner,
+              repo: githubConfig.repo,
+            },
+            items: selectedItems,
+          }),
+        },
+      )
+      setCreatedIssues(data.created ?? [])
       setStep('success')
     } catch {
       toast.error(
@@ -194,6 +209,7 @@ export default function ReviewPage() {
             <Button
               variant="ghost"
               size="icon"
+              aria-label="Back to review"
               onClick={() => setStep('review')}
             >
               <ArrowLeft className="h-4 w-4" />
@@ -201,8 +217,8 @@ export default function ReviewPage() {
             <div>
               <h1 className="text-2xl font-bold">GitHub Configuration</h1>
               <p className="text-sm text-muted-foreground">
-                Connect to your repository to create {selectedTitles.size} issue
-                {selectedTitles.size !== 1 ? 's' : ''}
+                Connect to your repository to create {selectedIds.size} issue
+                {selectedIds.size !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
@@ -236,6 +252,7 @@ export default function ReviewPage() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Back to dashboard"
             onClick={() => router.push('/')}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -258,7 +275,7 @@ export default function ReviewPage() {
           <>
             <WorkItemTree
               items={items}
-              selectedItems={selectedTitles}
+              selectedItems={selectedIds}
               onToggleSelect={handleToggleSelect}
               onEnhance={handleEnhance}
               onSelectAll={handleSelectAll}
@@ -269,7 +286,7 @@ export default function ReviewPage() {
             <div className="mt-6 flex justify-end">
               <Button
                 onClick={() => setStep('github')}
-                disabled={selectedTitles.size === 0}
+                disabled={selectedIds.size === 0}
               >
                 Continue to GitHub
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -281,3 +298,4 @@ export default function ReviewPage() {
     </div>
   )
 }
+
