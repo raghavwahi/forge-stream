@@ -19,9 +19,11 @@
 
 - Before making any file modifications in a domain, create a lock marker under
   `.github/architecture/locks/`.
-- Lock filename format: `<agent>-<domain>.lock`.
+- Lock filename format: `<agent>-<domain-token>.lock`.
+- Canonical domain tokens are: `api`, `web`, `infra`, `qa`, `e2e`,
+  `github-workflows`, `github-governance`.
 - Lock scope is the declared top-level domain in this policy (for example:
-  `backend/api/*`, `frontend/app/*`, `.github/workflows/*`).
+  `api/*`, `web/*`, `infra/*`, `.github/workflows/*`, `.github/agents/*`).
 - Only one active lock per declared domain scope.
 - Remove lock file when task is complete.
 - Lock acquisition is mandatory and is checked in PR review.
@@ -33,10 +35,13 @@
 ## Branch naming conventions
 
 - Branch names must use the format: `feature/<domain>-<short-description>`.
+- `<domain>` must use one of the canonical domain tokens listed in `Lock file
+  usage`, and must align with `.github/architecture/rules.md`.
 - Examples:
-  - `feature/backend-github-route`
-  - `feature/frontend-review-page`
-  - `feature/devops-ci-hardening`
+  - `feature/api-github-route`
+  - `feature/web-review-page`
+  - `feature/infra-ci-hardening`
+  - `feature/github-governance-policy-update`
 - Non-feature work should follow:
   - `bugfix/<domain>-<short-description>`
   - `hotfix/<domain>-<short-description>`

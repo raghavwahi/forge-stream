@@ -7,10 +7,10 @@ feature-specific files/folders.
 
 Examples:
 
-- `backend/api/routes/github.py`
-- `backend/api/routes/analytics.py`
-- `frontend/app/dashboard/page.tsx`
-- `frontend/app/review/page.tsx`
+- `api/app/routers/github.py`
+- `api/app/routers/analytics.py`
+- `web/src/app/dashboard/page.tsx`
+- `web/src/app/review/page.tsx`
 
 Rules:
 
@@ -24,30 +24,39 @@ Agents must only modify files in their owned domains.
 
 ### Backend agents
 
-- `backend/app/*`
-- `backend/services/*`
-- `backend/api/*`
+- `api/app/*`
+- `api/db/*`
 
 ### Frontend agents
 
-- `frontend/app/*`
-- `frontend/components/*`
-- `frontend/lib/*`
+- `web/src/app/*`
+- `web/src/components/*`
+- `web/src/lib/*`
+- `web/src/hooks/*`
 
 ### Security agents
 
-- `backend/security/*`
-- `backend/middleware/*`
+- `api/app/security/*`
+- `api/app/middleware/*`
 
 ### DevOps agents
 
-- `docker/*`
+- `infra/docker/*`
+- `infra/k8s/*`
 - `.github/workflows/*`
 
 ### QA agents
 
-- `tests/*`
+- `api/tests/*`
+- `web/src/**/*.test.*`
 - `e2e/*`
+
+### Governance agents
+
+- `.github/agents/*`
+- `.github/architecture/*`
+- `.github/instructions/*`
+- `.github/prompts/*`
 
 Cross-domain edits are not allowed unless explicitly approved in task scope.
 Approval must come from the PR owner or repository maintainer and be recorded in
