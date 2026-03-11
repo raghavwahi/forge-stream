@@ -81,7 +81,10 @@ forge-stream/
 │   ├── docker/           # Docker Compose & Dockerfiles
 │   └── k8s/              # Kubernetes manifests
 ├── docs/                 # Technical documentation
-└── .workflows/           # AI-assisted review workflows
+└── .github/
+    ├── agents/           # GitHub Copilot custom agents
+    ├── instructions/     # GitHub Copilot instruction files
+    └── prompts/          # GitHub Copilot prompt files (skills & workflows)
 ```
 
 ---
