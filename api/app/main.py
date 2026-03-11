@@ -63,7 +63,11 @@ app = FastAPI(title="ForgeStream API", version="0.1.0", lifespan=lifespan)
 _settings = get_settings()
 
 app.add_middleware(RateLimitMiddleware)
-app.add_middleware(RequestValidationMiddleware)
+app.add_middleware(
+    RequestValidationMiddleware,
+    max_body_size_bytes=_settings.validation.max_body_size_bytes,
+    allowed_content_types=frozenset(_settings.validation.allowed_content_types),
+)
 
 app.add_middleware(
     CORSMiddleware,

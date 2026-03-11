@@ -6,7 +6,6 @@ Call them from the router/service layer for user-supplied string inputs.
 """
 from __future__ import annotations
 
-import re
 import unicodedata
 from urllib.parse import urlparse
 
@@ -32,18 +31,26 @@ def sanitize_string(value: str, max_length: int = 10_000) -> str:
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize a filename to prevent path traversal attacks:
-    - Remove path separators (/ and \\)
-    - Collapse directory-traversal sequences (..)
-    - Allow only alphanumerics, hyphens, underscores, dots
-    - Strip leading dots
+    - Strip null bytes
+    - Normalize backslashes to forward slashes
+    - Split on path separators, drop empty parts and directory-traversal
+      components (``..`` and ``.``)
+    - Rejoin remaining parts with forward slashes
+
+    Examples:
+        ``../../etc/passwd``  →  ``etc/passwd``
+        ``../secret.txt``     →  ``secret.txt``
+        ``/absolute/path``    →  ``absolute/path``
+        ``/./etc/./passwd``   →  ``etc/passwd``
+        ``normal.txt``        →  ``normal.txt``
     """
-    # Remove directory separators and traversal sequences
-    filename = filename.replace("/", "").replace("\\", "").replace("..", "")
-    # Allow only safe characters
-    filename = re.sub(r"[^\w\-.]", "", filename)
-    # Remove leading dots (hidden file protection)
-    filename = filename.lstrip(".")
-    return filename or "unnamed"
+    # Strip null bytes
+    filename = filename.replace("\x00", "")
+    # Normalize backslashes to forward slashes
+    filename = filename.replace("\\", "/")
+    # Split, discard traversal components (.. and .) and empty segments
+    parts = [p for p in filename.split("/") if p and p not in ("..", ".")]
+    return "/".join(parts) or "unnamed"
 
 
 def is_safe_url(url: str, allowed_hosts: frozenset[str]) -> bool:
@@ -51,17 +58,37 @@ def is_safe_url(url: str, allowed_hosts: frozenset[str]) -> bool:
     Validate that a URL is safe for redirects (prevents open redirect attacks).
 
     Rules:
-    - Relative URLs (no host) are always considered safe
-    - Only http and https schemes are permitted
-    - The URL's host must be in the provided allow-list
+    - Relative URLs are only considered safe when they have **no scheme**
+      and **no host** (both ``scheme`` and ``netloc`` are empty).
+    - For absolute or scheme-relative URLs:
+      - Only ``http`` and ``https`` schemes are permitted (when a scheme is
+        present).
+      - The URL's hostname must be non-empty and in the provided allow-list.
+      - Comparison is case-insensitive; port info in ``allowed_hosts`` entries
+        is stripped before comparison.
     """
     try:
         parsed = urlparse(url)
-        if not parsed.netloc:
-            # Relative URL — safe
+        scheme = (parsed.scheme or "").lower()
+        netloc = parsed.netloc or ""
+
+        # Strictly relative URL (no scheme, no host) — safe
+        if not scheme and not netloc:
             return True
-        if parsed.scheme.lower() not in ("http", "https"):
+
+        # If a scheme is present it must be http or https
+        if scheme and scheme not in ("http", "https"):
             return False
-        return parsed.netloc.lower() in allowed_hosts
+
+        # Require a resolvable hostname present in the allow-list.
+        # parsed.hostname strips port and userinfo; it returns None for malformed URLs.
+        hostname = parsed.hostname
+        if not hostname:
+            # Covers malformed absolute URLs like "http:evil.com" or scheme-only strings
+            return False
+
+        # Normalize allowed_hosts: strip optional port, casefold for comparison
+        normalized_allowed = {h.split(":", 1)[0].casefold() for h in allowed_hosts}
+        return hostname.casefold() in normalized_allowed
     except Exception:
         return False
