@@ -27,11 +27,10 @@ CREATE TABLE refresh_tokens (
     family_id       UUID NOT NULL,
     expires_at      TIMESTAMPTZ NOT NULL,
     revoked_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (token_hash)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
+CREATE UNIQUE INDEX idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
 CREATE INDEX idx_refresh_tokens_family_id ON refresh_tokens (family_id);
 
@@ -42,11 +41,10 @@ CREATE TABLE password_reset_tokens (
     token_hash      VARCHAR(64) NOT NULL,
     expires_at      TIMESTAMPTZ NOT NULL,
     used_at         TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (token_hash)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_password_reset_token_hash ON password_reset_tokens (token_hash);
+CREATE UNIQUE INDEX idx_password_reset_token_hash ON password_reset_tokens (token_hash);
 CREATE INDEX idx_password_reset_user_id ON password_reset_tokens (user_id);
 
 -- OAuth accounts (GitHub account linking)
