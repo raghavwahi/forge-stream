@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_BODY_SIZE = 10 * 1024 * 1024  # 10 MB
 
-_ALLOWED_CONTENT_TYPES = frozenset(
+_DEFAULT_ALLOWED_CONTENT_TYPES = frozenset(
     [
         "application/json",
         "application/x-www-form-urlencoded",
@@ -43,30 +43,56 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
     Validates incoming requests and injects security headers on all responses.
 
     Checks (in order):
-    1. Content-Length if present → 413 if body exceeds max_body_size
-    2. Content-Type for body-bearing methods → 415 if unsupported
+    1. Content-Length validation for body-bearing methods:
+       - 411 if absent (unbounded body cannot be enforced)
+       - 400 if non-integer or negative (invalid per RFC)
+       - 413 if declared size exceeds max_body_size_bytes
+    2. Content-Type for body-bearing methods with a non-zero body → 415 if
+       the MIME type is unsupported or absent
     3. Adds security headers to every response
     """
 
-    def __init__(self, app: ASGIApp, max_body_size: int = _DEFAULT_MAX_BODY_SIZE) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_body_size_bytes: int = _DEFAULT_MAX_BODY_SIZE,
+        allowed_content_types: frozenset[str] = _DEFAULT_ALLOWED_CONTENT_TYPES,
+    ) -> None:
         super().__init__(app)
-        self.max_body_size = max_body_size
+        self.max_body_size_bytes = max_body_size_bytes
+        self.allowed_content_types = frozenset(allowed_content_types)
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        # 1. Check declared Content-Length
-        content_length_header = request.headers.get("content-length")
-        if content_length_header is not None:
+        # 1. Content-Length + body-size enforcement for body-bearing methods
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length_header = request.headers.get("content-length")
+            if content_length_header is None:
+                # Require Content-Length so we never accept an unbounded body.
+                return _security_response(
+                    JSONResponse(
+                        {"detail": "Content-Length header required"}, status_code=411
+                    )
+                )
             try:
                 declared_size = int(content_length_header)
             except ValueError:
                 return _security_response(
-                    JSONResponse({"detail": "Invalid Content-Length header"}, status_code=400)
+                    JSONResponse(
+                        {"detail": "Invalid Content-Length header"}, status_code=400
+                    )
                 )
-            if declared_size > self.max_body_size:
+            if declared_size < 0:
+                # Negative Content-Length is invalid per RFC and must be rejected.
+                return _security_response(
+                    JSONResponse(
+                        {"detail": "Invalid Content-Length header"}, status_code=400
+                    )
+                )
+            if declared_size > self.max_body_size_bytes:
                 logger.warning(
                     "Request rejected: Content-Length %d exceeds max %d for %s %s",
                     declared_size,
-                    self.max_body_size,
+                    self.max_body_size_bytes,
                     request.method,
                     request.url.path,
                 )
@@ -74,24 +100,29 @@ class RequestValidationMiddleware(BaseHTTPMiddleware):
                     JSONResponse({"detail": "Request body too large"}, status_code=413)
                 )
 
-        # 2. Content-Type validation for body-bearing methods
-        if request.method in ("POST", "PUT", "PATCH"):
-            raw_content_type = request.headers.get("content-type", "")
-            mime_type = raw_content_type.split(";")[0].strip().lower()
-            # Only enforce when a body is actually present
-            if mime_type and mime_type not in _ALLOWED_CONTENT_TYPES:
-                logger.warning(
-                    "Request rejected: unsupported Content-Type '%s' for %s %s",
-                    mime_type,
-                    request.method,
-                    request.url.path,
-                )
-                return _security_response(
-                    JSONResponse(
-                        {"detail": f"Unsupported Content-Type: {mime_type}"},
-                        status_code=415,
+            # 2. Content-Type validation — enforce allow-list when a body is present
+            if declared_size > 0:
+                raw_content_type = request.headers.get("content-type", "")
+                mime_type = raw_content_type.split(";")[0].strip().lower()
+                if not mime_type or mime_type not in self.allowed_content_types:
+                    logger.warning(
+                        "Request rejected: unsupported or missing "
+                        "Content-Type '%s' for %s %s",
+                        mime_type or "<missing>",
+                        request.method,
+                        request.url.path,
                     )
-                )
+                    return _security_response(
+                        JSONResponse(
+                            {
+                                "detail": (
+                                    "Unsupported or missing Content-Type: "
+                                    f"{mime_type or '<missing>'}"
+                                )
+                            },
+                            status_code=415,
+                        )
+                    )
 
         # 3. Let the request proceed
         response = await call_next(request)
