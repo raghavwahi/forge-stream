@@ -14,13 +14,13 @@ from app.schemas.work_items import (
     GenerateWorkItemsRequest,
     GenerateWorkItemsResponse,
 )
-from app.services.github_service import GitHubService
+from app.services.github_issue_service import GitHubIssueService
 from app.services.work_item_service import WorkItemService
 
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
 _work_item_service = WorkItemService()
-_github_service = GitHubService()
+_github_service = GitHubIssueService()
 
 
 @router.post("/generate", response_model=GenerateWorkItemsResponse)
