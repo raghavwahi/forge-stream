@@ -9,7 +9,7 @@ Or via Docker:
 Environment variables
 ---------------------
 WORKER_CONCURRENCY : int  (default 4)  – number of parallel worker coroutines
-All standard ForgeStream env vars (DB_HOST, REDIS_HOST, …) are required.
+REDIS_HOST, REDIS_PORT, REDIS_DB       – Redis connection (see RedisSettings).
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ import logging
 import os
 import signal
 
-from app.config import get_settings
-from app.providers.redis import RedisProvider
+from app.config import RedisSettings
+from app.schemas.jobs import JobType
 from app.workers.job_queue import JobQueue
 from app.workers.worker import Worker
 
@@ -32,47 +32,42 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))
 
 
-async def _build_worker() -> Worker:
-    """Initialise providers and return a fully wired Worker."""
-    settings = get_settings()
-    redis = RedisProvider(
-        settings.redis.host, settings.redis.port, settings.redis.db
-    )
-    await redis.connect()
-    logger.info("Redis connected at %s:%d", settings.redis.host, settings.redis.port)
+async def main() -> None:
+    redis_settings = RedisSettings()
+    queue = JobQueue(redis_settings.host, redis_settings.port, redis_settings.db)
+    await queue.connect()
+    logger.info("Redis connected at %s:%d", redis_settings.host, redis_settings.port)
 
-    queue = JobQueue(redis)
     worker = Worker(queue)
 
-    # Register default no-op handlers; real handlers are wired in the API
-    # and will be plugged in via app.workers.registry once the service layer grows.
-    from app.schemas.jobs import JobType  # noqa: PLC0415
-
+    # Register default no-op handlers; real handlers are wired elsewhere
+    # (e.g. via app.workers.registry once the service layer grows).
     async def _noop(payload: dict) -> dict:
-        logger.info("Received job with payload %s — no handler registered yet", payload)
+        logger.info(
+            "Received job — no handler registered yet (payload has %d field(s))",
+            len(payload),
+        )
         return {}
 
     for jt in JobType:
         worker.register(jt, _noop)
 
-    return worker
-
-
-async def main() -> None:
     loop = asyncio.get_running_loop()
-    worker = await _build_worker()
 
-    # Graceful shutdown on SIGTERM / SIGINT
-    def _stop(_sig, _frame):
+    def _stop() -> None:
         logger.info("Shutdown signal received — stopping worker")
         worker.stop()
 
-    signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
+    loop.add_signal_handler(signal.SIGTERM, _stop)
+    loop.add_signal_handler(signal.SIGINT, _stop)
 
     tasks = [asyncio.create_task(worker.run()) for _ in range(_CONCURRENCY)]
     logger.info("Started %d worker coroutine(s)", _CONCURRENCY)
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        await queue.disconnect()
+        logger.info("Redis disconnected")
 
 
 if __name__ == "__main__":
