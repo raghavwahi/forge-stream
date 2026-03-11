@@ -3,15 +3,12 @@ from __future__ import annotations
 
 import time
 
-import pytest
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.responses import Response
 from starlette.routing import Route
+from starlette.testclient import TestClient
 
 from app.middleware.csrf import CSRFMiddleware, _generate_token, _is_valid_token
-
 
 # ── Token helpers ─────────────────────────────────────────────────────────────
 
@@ -47,11 +44,6 @@ class TestIsValidToken:
 
 
 # ── Middleware integration ─────────────────────────────────────────────────────
-
-
-async def _ok_handler(scope, receive, send):
-    resp = Response("ok")
-    await resp(scope, receive, send)
 
 
 def _make_app():
