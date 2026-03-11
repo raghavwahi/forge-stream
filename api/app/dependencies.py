@@ -16,6 +16,7 @@ from app.repositories.refresh_token import RefreshTokenRepository
 from app.repositories.user import UserRepository
 from app.security.jwt import JWTManager
 from app.security.password import PasswordManager
+from app.security.encryption import EncryptionManager
 from app.services.auth import AuthService
 
 bearer_scheme = HTTPBearer()
@@ -79,6 +80,13 @@ def get_jwt_manager(
 
 def get_password_manager() -> PasswordManager:
     return PasswordManager()
+
+
+@lru_cache
+def get_encryption_manager() -> EncryptionManager:
+    """Return a cached EncryptionManager instance using settings master secret."""
+    settings = get_cached_settings()
+    return EncryptionManager(settings.encryption.master_secret)
 
 
 def get_auth_service(
