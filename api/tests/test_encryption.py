@@ -9,8 +9,7 @@ import base64
 
 import pytest
 
-from api.app.security.encryption import EncryptionManager
-
+from app.security.encryption import EncryptionManager
 
 # ---------------------------------------------------------------------------
 # Helpers

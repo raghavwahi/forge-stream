@@ -60,13 +60,18 @@ class GitHubOAuthSettings(BaseSettings):
 class EncryptionSettings(BaseSettings):
     """Settings for AES-256-GCM API key encryption.
 
-    Generate a master secret with:
-        python -c "from app.security.encryption import EncryptionManager; print(EncryptionManager.generate_master_secret())"
+    Generate a master secret with::
+
+        python -c "from app.security.encryption import EncryptionManager;\\
+            print(EncryptionManager.generate_master_secret())"
     """
 
     master_secret: str = Field(
-        default="change-me-in-production-min-32-chars",
-        description="Master secret for AES-256 API key encryption. Must be ≥32 characters.",
+        ...,
+        description=(
+            "Master secret for AES-256 API key encryption."
+            " Must be ≥32 characters."
+        ),
         min_length=32,
     )
 

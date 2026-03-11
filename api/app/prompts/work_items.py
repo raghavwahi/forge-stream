@@ -5,7 +5,9 @@ from __future__ import annotations
 from app.prompts.base import PromptTemplate
 
 GENERATE_WORK_ITEMS_PROMPT = PromptTemplate(
-    system="""You are a senior product manager and software architect. Your role is to analyze software requirements and break them down into a structured hierarchy of work items.
+    system="""You are a senior product manager and software architect.
+Your role is to analyze software requirements and break them down
+into a structured hierarchy of work items.
 
 STRICT OUTPUT REQUIREMENTS:
 - You MUST respond with ONLY valid JSON. No prose, no markdown, no explanations.
@@ -24,7 +26,8 @@ JSON SCHEMA:
 
 EXAMPLE OUTPUT:
 {example}""",
-    user_template="""Analyze the following product requirement and generate a complete work item hierarchy:
+    user_template="""Analyze the following product requirement and generate
+a complete work item hierarchy:
 
 REQUIREMENT:
 {prompt}
@@ -42,7 +45,8 @@ CONSTRAINTS:
 )
 
 ENHANCE_PROMPT_TEMPLATE = PromptTemplate(
-    system="""You are an expert at writing clear, detailed software requirements for AI-assisted development.
+    system="""You are an expert at writing clear, detailed software
+requirements for AI-assisted development.
 
 Your role is to take a raw prompt and enhance it with:
 1. Clear acceptance criteria
@@ -57,7 +61,8 @@ Respond with ONLY the enhanced prompt text. No JSON, no headers, no explanations
 ORIGINAL PROMPT:
 {prompt}
 
-Make it more specific, actionable, and comprehensive while preserving the original intent.""",
+Make it more specific, actionable, and comprehensive while preserving
+the original intent.""",
     required_vars=["prompt"],
     output_format="text",
     max_tokens=2048,
@@ -65,7 +70,8 @@ Make it more specific, actionable, and comprehensive while preserving the origin
 )
 
 ENHANCE_WORK_ITEM_TEMPLATE = PromptTemplate(
-    system="""You are a senior software architect reviewing work items for completeness and quality.
+    system="""You are a senior software architect reviewing work items
+for completeness and quality.
 
 STRICT OUTPUT REQUIREMENTS:
 - You MUST respond with ONLY valid JSON matching the WorkItem schema exactly.
@@ -76,7 +82,8 @@ STRICT OUTPUT REQUIREMENTS:
 
 JSON SCHEMA:
 {schema}""",
-    user_template="""Enhance the following work item with more detailed technical information:
+    user_template="""Enhance the following work item with more detailed
+technical information:
 
 WORK ITEM:
 {item_json}
