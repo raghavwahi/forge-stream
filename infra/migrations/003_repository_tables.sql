@@ -30,9 +30,9 @@ CREATE TABLE repository_issue_runs (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     prompt TEXT NOT NULL,
     model VARCHAR(100),
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',  -- pending, running, completed, failed
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     total_issues INTEGER,
-    created_issues INTEGER DEFAULT 0,
+    created_issues INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
     work_item_snapshot JSONB,  -- snapshot of generated work items
     started_at TIMESTAMPTZ,
@@ -44,15 +44,8 @@ CREATE INDEX idx_issue_runs_repo_id ON repository_issue_runs(repository_id);
 CREATE INDEX idx_issue_runs_user_id ON repository_issue_runs(user_id);
 CREATE INDEX idx_issue_runs_status ON repository_issue_runs(status);
 
--- auto-update trigger for github_repositories.updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
+-- auto-update trigger for github_repositories.updated_at reuses the function
+-- defined in migration 001_auth_tables.sql
 CREATE TRIGGER update_github_repositories_updated_at
     BEFORE UPDATE ON github_repositories
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();

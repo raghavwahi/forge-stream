@@ -10,6 +10,7 @@ from app.dependencies import get_current_user, get_repository_service
 from app.models.user import UserInDB
 from app.schemas.repositories import (
     IssueRunCreate,
+    IssueRunCreateBody,
     IssueRunResponse,
     RepositoryCreate,
     RepositoryListResponse,
@@ -102,7 +103,7 @@ async def list_issue_runs(
 )
 async def start_issue_run(
     repo_id: UUID,
-    data: IssueRunCreate,
+    data: IssueRunCreateBody,
     current_user: UserInDB = Depends(get_current_user),
     service: RepositoryService = Depends(get_repository_service),
 ) -> IssueRunResponse:
@@ -111,6 +112,9 @@ async def start_issue_run(
     The run is created in ``pending`` status; actual issue generation
     is handled asynchronously by a background worker.
     """
-    # Ensure the path parameter and body are consistent
-    data.repository_id = repo_id
-    return await service.start_issue_run(current_user.id, data)
+    issue_run = IssueRunCreate(
+        repository_id=repo_id,
+        prompt=data.prompt,
+        model=data.model,
+    )
+    return await service.start_issue_run(current_user.id, issue_run)
