@@ -32,7 +32,7 @@ const FEATURES = [
 export default function DashboardPage() {
   const router = useRouter()
   const generate = useGenerate()
-  const { addPrompt } = useRecentPrompts()
+  const { prompts: recentPrompts, addPrompt, removePrompt, clearPrompts } = useRecentPrompts()
   const [selectedPrompt, setSelectedPrompt] = useState<string | undefined>(undefined)
 
   function handleSubmit(prompt: string, model: string) {
@@ -83,7 +83,12 @@ export default function DashboardPage() {
             />
 
             {/* Recent prompts */}
-            <RecentPrompts onSelect={handleSelectRecent} />
+            <RecentPrompts
+              prompts={recentPrompts}
+              onSelect={handleSelectRecent}
+              onRemove={removePrompt}
+              onClear={clearPrompts}
+            />
           </div>
 
           {/* Loading state hint */}

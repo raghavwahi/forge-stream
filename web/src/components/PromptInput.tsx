@@ -104,6 +104,14 @@ export function PromptInput({ onSubmit, isLoading, prefilledPrompt }: PromptInpu
   const isNearLimit = charPercent >= 80
   const isAtLimit = charCount >= MAX_CHARS
 
+  const [isMac] = useState<boolean>(() => {
+    if (typeof navigator === 'undefined') return false
+    const platform =
+      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+      navigator.platform
+    return /Mac/i.test(platform)
+  })
+
   return (
     <div className="flex flex-col gap-2">
       {/* Textarea */}
@@ -195,7 +203,7 @@ export function PromptInput({ onSubmit, isLoading, prefilledPrompt }: PromptInpu
         {isLoading ? 'Generating…' : 'Generate'}
         {!isLoading && (
           <kbd className="ml-auto hidden rounded border border-primary-foreground/20 bg-primary-foreground/10 px-1.5 text-[10px] font-mono text-primary-foreground/70 sm:inline-block">
-            ⌘ Enter
+            {isMac ? '⌘' : 'Ctrl'} Enter
           </kbd>
         )}
       </Button>
