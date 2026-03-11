@@ -39,10 +39,11 @@ class RepositoryService:
     async def disconnect_repository(
         self, user_id: UUID, repo_id: UUID
     ) -> bool:
-        """Mark a repository as disconnected (soft) or remove it entirely.
+        """Mark a repository as disconnected (soft-delete via is_connected flag).
 
         Raises 404 when the repository does not exist or does not belong
-        to the requesting user.  Returns True on success.
+        to the requesting user.  Returns True on success.  Run history is
+        preserved because the row is not deleted.
         """
         existing = await self._get_owned_repo(user_id, repo_id)
         if existing is None:
@@ -50,8 +51,8 @@ class RepositoryService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Repository not found",
             )
-        deleted = await self._repo.delete(repo_id, user_id)
-        if not deleted:
+        updated = await self._repo.update_connected(repo_id, False)
+        if not updated:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Repository not found",

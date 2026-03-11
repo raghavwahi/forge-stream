@@ -40,10 +40,21 @@ class RepositoryListResponse(BaseModel):
     total: int
 
 
-class IssueRunCreate(BaseModel):
-    repository_id: UUID
+class IssueRunCreateBody(BaseModel):
+    """Request body for POST /{repo_id}/runs.
+
+    ``repository_id`` is intentionally excluded; it is taken from the path
+    parameter and injected by the router.
+    """
+
     prompt: str
     model: str | None = None
+
+
+class IssueRunCreate(IssueRunCreateBody):
+    """Internal schema that includes the resolved repository_id."""
+
+    repository_id: UUID
 
 
 class IssueRunResponse(BaseModel):

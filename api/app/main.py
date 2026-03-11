@@ -1,17 +1,27 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.providers.budget import BudgetExceededError
 from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.providers.redis import RedisProvider
 from app.routers.auth import router as auth_router
 from app.routers.repositories import router as repositories_router
+from app.routers.work_items import router as work_items_router
+
+try:
+    from app.providers.auto import AutoProvider as _AutoProvider
+
+    _auto = _AutoProvider()
+except Exception:
+    _auto = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +71,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ForgeStream API", version="0.1.0", lifespan=lifespan)
 
 _settings = get_settings()
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
 
 app.add_middleware(RateLimitMiddleware)
 
