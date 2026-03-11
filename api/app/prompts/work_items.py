@@ -35,7 +35,8 @@ CONSTRAINTS:
 - Each story/bug may have 0-5 child tasks
 - Focus on technical implementation details
 - Be specific and actionable""",
-    required_vars=["prompt", "schema", "example"],
+    required_vars=["prompt"],
+    system_vars=["schema", "example"],
     output_format="json",
     max_tokens=4096,
     temperature=0.3,  # Lower temperature for structured output
@@ -86,7 +87,8 @@ Improve the description with:
 - Key files/components to modify
 - Dependencies or prerequisites
 - Acceptance criteria""",
-    required_vars=["item_json", "schema"],
+    required_vars=["item_json"],
+    system_vars=["schema"],
     output_format="json",
     max_tokens=2048,
     temperature=0.3,

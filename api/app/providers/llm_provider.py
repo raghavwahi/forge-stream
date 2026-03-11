@@ -44,14 +44,15 @@ class LLMProvider:
         )
         parser = JsonOutputParser(pydantic_object=WorkItemHierarchy)
 
-        user_message = template.format_user(
-            prompt=prompt,
-            schema=WORK_ITEM_HIERARCHY_SCHEMA,
-            example=WORK_ITEM_HIERARCHY_EXAMPLE,
-        )
+        user_message = template.format_user(prompt=prompt)
 
         messages = [
-            SystemMessage(content=template.system),
+            SystemMessage(
+                content=template.format_system(
+                    schema=WORK_ITEM_HIERARCHY_SCHEMA,
+                    example=WORK_ITEM_HIERARCHY_EXAMPLE,
+                )
+            ),
             HumanMessage(content=user_message),
         ]
 
@@ -89,12 +90,9 @@ class LLMProvider:
             max_tokens=template.max_tokens,
         )
         parser = JsonOutputParser(pydantic_object=WorkItem)
-        user_message = template.format_user(
-            item_json=item.model_dump_json(),
-            schema=WORK_ITEM_SCHEMA,
-        )
+        user_message = template.format_user(item_json=item.model_dump_json())
         messages = [
-            SystemMessage(content=template.system),
+            SystemMessage(content=template.format_system(schema=WORK_ITEM_SCHEMA)),
             HumanMessage(content=user_message),
         ]
         response = await llm.ainvoke(messages)
