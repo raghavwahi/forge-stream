@@ -9,6 +9,7 @@ from app.models.user import UserInDB
 from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
+from app.providers.github_app import GitHubAppProvider
 from app.providers.redis import RedisProvider
 from app.repositories.oauth_account import OAuthAccountRepository
 from app.repositories.password_reset import PasswordResetRepository
@@ -17,6 +18,7 @@ from app.repositories.user import UserRepository
 from app.security.jwt import JWTManager
 from app.security.password import PasswordManager
 from app.services.auth import AuthService
+from app.services.github_app_service import GitHubAppService
 
 bearer_scheme = HTTPBearer()
 
@@ -40,6 +42,16 @@ def get_email_provider(request: Request) -> SMTPEmailProvider:
 
 def get_github_provider(request: Request) -> GitHubOAuthProvider:
     return request.app.state.github_provider
+
+
+def get_github_app_provider(request: Request) -> GitHubAppProvider:
+    return request.app.state.github_app_provider
+
+
+def get_github_app_service(
+    provider: GitHubAppProvider = Depends(get_github_app_provider),
+) -> GitHubAppService:
+    return GitHubAppService(provider)
 
 
 def get_user_repository(

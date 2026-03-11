@@ -1,16 +1,22 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from app.config import get_settings
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.providers.auto import AutoProvider
+from app.providers.budget import BudgetExceededError
 from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
+from app.providers.github_app import GitHubAppProvider
 from app.providers.redis import RedisProvider
 from app.routers.auth import router as auth_router
+from app.routers.repositories import router as repositories_router
+from app.routers.work_items import router as work_items_router
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +46,10 @@ async def lifespan(app: FastAPI):
         client_secret=settings.github.client_secret,
         redirect_uri=settings.github.redirect_uri,
     )
+    github_app = GitHubAppProvider(
+        app_id=settings.github_app.app_id,
+        private_key=settings.github_app.private_key,
+    )
 
     await db.connect()
     await redis.connect()
@@ -49,6 +59,7 @@ async def lifespan(app: FastAPI):
     app.state.redis_provider = redis
     app.state.email_provider = email
     app.state.github_provider = github
+    app.state.github_app_provider = github_app
 
     yield
 
@@ -60,6 +71,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ForgeStream API", version="0.1.0", lifespan=lifespan)
 
 _settings = get_settings()
+_auto = AutoProvider()
 
 app.add_middleware(RateLimitMiddleware)
 
@@ -73,7 +85,16 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/v1")
 
+app.include_router(repositories_router)
+
 app.include_router(work_items_router)
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    model: str | None = None
+    temperature: float = 0.7
+    max_tokens: int = 1024
 
 
 @app.get("/health")

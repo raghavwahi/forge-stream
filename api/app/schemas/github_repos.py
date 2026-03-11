@@ -12,7 +12,9 @@ class GitHubRepo(BaseModel):
     description: str | None = None
     html_url: str
     default_branch: str = "main"
-    installation_id: int = Field(description="GitHub App installation that owns this repo")
+    installation_id: int = Field(
+        description="GitHub App installation that owns this repo",
+    )
 
 
 class ListReposResponse(BaseModel):

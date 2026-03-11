@@ -5,8 +5,9 @@ import time
 import backoff
 import google.api_core.exceptions
 import google.generativeai as genai
-from api.app.providers.base import BaseProvider, ProviderResponse
-from api.app.providers.config import ProviderConfig
+
+from app.providers.base import BaseProvider, ProviderResponse
+from app.providers.config import ProviderConfig
 
 
 class GeminiProvider(BaseProvider):
