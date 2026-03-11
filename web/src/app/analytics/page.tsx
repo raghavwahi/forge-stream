@@ -1,40 +1,39 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, BarChart2, Zap, Activity, Clock } from 'lucide-react'
-import { apiFetch } from '@/lib/api'
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, BarChart2, Zap, Activity, Clock } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface DailyStat {
-  date: string
-  total_events: number
-  total_tokens: number
-  events_by_type: Record<string, number>
+  date: string;
+  total_events: number;
+  total_tokens: number;
+  events_by_type: Record<string, number>;
 }
 
 interface AnalyticsSummary {
-  total_events: number
-  total_tokens: number
-  events_by_type: Record<string, number>
-  daily_stats: DailyStat[]
+  total_events: number;
+  total_tokens: number;
+  events_by_type: Record<string, number>;
+  daily_stats: DailyStat[];
   recent_events: Array<{
-    id: string
-    event_type: string
-    provider: string | null
-    model: string | null
-    tokens_used: number | null
-    latency_ms: number | null
-    created_at: string
-  }>
+    id: string;
+    event_type: string;
+    provider: string | null;
+    model: string | null;
+    tokens_used: number | null;
+    latency_ms: number | null;
+    created_at: string;
+  }>;
 }
 
 function StatCard({
@@ -43,10 +42,10 @@ function StatCard({
   icon: Icon,
   sub,
 }: {
-  title: string
-  value: string | number
-  icon: React.ElementType
-  sub?: string
+  title: string;
+  value: string | number;
+  icon: React.ElementType;
+  sub?: string;
 }) {
   return (
     <Card>
@@ -61,7 +60,7 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
 function MiniBar({
@@ -69,11 +68,11 @@ function MiniBar({
   value,
   max,
 }: {
-  label: string
-  value: number
-  max: number
+  label: string;
+  value: number;
+  max: number;
 }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
@@ -87,30 +86,29 @@ function MiniBar({
         />
       </div>
     </div>
-  )
+  );
 }
 
 export default function AnalyticsPage() {
-  const router = useRouter()
-  const [days] = useState(30)
+  const router = useRouter();
 
   const { data, isLoading, isError } = useQuery<AnalyticsSummary>({
-    queryKey: ['analytics', 'summary', days],
+    queryKey: ["analytics", "summary"],
     queryFn: () => apiFetch<AnalyticsSummary>(`/api/v1/analytics/summary?limit=200`),
     staleTime: 60_000,
-  })
+  });
 
   return (
     <div className="flex min-h-screen justify-center bg-background p-4">
       <div className="w-full max-w-4xl py-10 space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/')}>
+          <Button variant="ghost" size="icon" onClick={() => router.push("/")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <h1 className="text-2xl font-bold">Analytics</h1>
-            <p className="text-sm text-muted-foreground">Usage overview for the last {days} days</p>
+            <p className="text-sm text-muted-foreground">Usage overview</p>
           </div>
         </div>
 
@@ -118,7 +116,7 @@ export default function AnalyticsPage() {
         {isError && (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground">
-              Failed to load analytics. Make sure you are signed in.
+              Failed to load analytics. Please try again later.
             </CardContent>
           </Card>
         )}
@@ -203,25 +201,27 @@ export default function AnalyticsPage() {
                     <p className="text-sm text-muted-foreground">No daily data yet.</p>
                   ) : (
                     <div className="flex items-end gap-1 h-32">
-                      {data.daily_stats.slice(-14).map((stat) => {
-                        const max = Math.max(
+                      {(() => {
+                        const maxEvents = Math.max(
                           ...data.daily_stats.map((s) => s.total_events),
                           1,
-                        )
-                        const pct = (stat.total_events / max) * 100
-                        return (
-                          <div
-                            key={stat.date}
-                            className="flex-1 group relative"
-                            title={`${stat.date}: ${stat.total_events} events`}
-                          >
+                        );
+                        return data.daily_stats.slice(-14).map((stat) => {
+                          const pct = (stat.total_events / maxEvents) * 100;
+                          return (
                             <div
-                              className="w-full rounded-sm bg-primary/70 group-hover:bg-primary transition-colors"
-                              style={{ height: `${Math.max(pct, 4)}%` }}
-                            />
-                          </div>
-                        )
-                      })}
+                              key={stat.date}
+                              className="flex-1 group relative"
+                              title={`${stat.date}: ${stat.total_events} events`}
+                            >
+                              <div
+                                className="w-full rounded-sm bg-primary/70 group-hover:bg-primary transition-colors"
+                                style={{ height: `${Math.max(pct, 4)}%` }}
+                              />
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground mt-2">Last 14 days</p>
@@ -277,5 +277,5 @@ export default function AnalyticsPage() {
         )}
       </div>
     </div>
-  )
+  );
 }
