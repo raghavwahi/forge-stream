@@ -452,7 +452,7 @@ jobs:
               owner,
               repo,
               issue_number: pull_number,
-              body: "@github-copilot review this PR for bugs, security, performance, maintainability, and missing tests.",
+              body: "@copilot review this PR for bugs, security, performance, maintainability, and missing tests.",
             });
 
             core.setOutput("triggered_at", new Date().toISOString());
