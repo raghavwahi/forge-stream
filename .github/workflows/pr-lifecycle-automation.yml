@@ -228,6 +228,157 @@ jobs:
               labels: ["agent-review-cycle"],
             });
 
+      - name: Process updates after review comments
+        id: post_review_updates
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+            const headRef = "${{ matrix.pr.headRef }}";
+            const isDraft = String("${{ matrix.pr.draft }}") === "true";
+
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+
+            const actionableReviewComments = reviewComments.filter((comment) => {
+              const author = (comment.user?.login || "").toLowerCase();
+              if (comment.in_reply_to_id) {
+                return false;
+              }
+              return author.includes("copilot");
+            });
+
+            const latestActionableAt = actionableReviewComments
+              .map((comment) => new Date(comment.created_at || comment.updated_at || 0))
+              .filter((date) => !Number.isNaN(date.getTime()))
+              .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+
+            const currentPr = (await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number,
+            })).data;
+
+            const headCommit = (await github.rest.repos.getCommit({
+              owner,
+              repo,
+              ref: currentPr.head.sha,
+            })).data;
+            const headCommitTime = new Date(
+              headCommit.commit?.committer?.date ||
+              headCommit.commit?.author?.date ||
+              currentPr.updated_at,
+            );
+
+            const hasCommitAfterComments = Boolean(
+              latestActionableAt && headCommitTime > latestActionableAt,
+            );
+
+            let mergedLinkedPr = false;
+            let linkedPrNumber = null;
+
+            if (latestActionableAt) {
+              const issueComments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pull_number,
+                per_page: 100,
+              });
+
+              for (const comment of issueComments) {
+                const createdAt = new Date(comment.created_at || 0);
+                if (!(createdAt > latestActionableAt)) {
+                  continue;
+                }
+                const body = comment.body || "";
+                const matches = body.match(new RegExp(`https://github.com/${owner}/${repo}/pull/(\\d+)`, "gi")) || [];
+                for (const match of matches) {
+                  const candidateMatch = /\/pull\/(\d+)/i.exec(match);
+                  if (!candidateMatch) {
+                    continue;
+                  }
+                  const candidate = Number(candidateMatch[1]);
+                  if (candidate === pull_number) {
+                    continue;
+                  }
+
+                  const linkedPr = (await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: candidate,
+                  })).data;
+
+                  if (linkedPr.state === "open" && linkedPr.base.ref !== headRef) {
+                    try {
+                      await github.rest.pulls.update({
+                        owner,
+                        repo,
+                        pull_number: candidate,
+                        base: headRef,
+                      });
+                    } catch (error) {
+                      core.warning(`Could not retarget linked PR #${candidate} to ${headRef}: ${error.message}`);
+                    }
+                  }
+
+                  const refreshed = (await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: candidate,
+                  })).data;
+
+                  if (refreshed.state === "open" && refreshed.base.ref === headRef) {
+                    await github.rest.pulls.merge({
+                      owner,
+                      repo,
+                      pull_number: candidate,
+                      merge_method: "squash",
+                      commit_title: `Merge PR #${candidate} into ${headRef} via PR lifecycle agent`,
+                    });
+                    mergedLinkedPr = true;
+                  }
+
+                  try {
+                    await github.rest.git.deleteRef({
+                      owner,
+                      repo,
+                      ref: `heads/${refreshed.head.ref}`,
+                    });
+                  } catch (error) {
+                    core.info(`Unable to delete linked PR branch ${refreshed.head.ref}: ${error.message}`);
+                  }
+
+                  linkedPrNumber = candidate;
+                  break;
+                }
+                if (linkedPrNumber) {
+                  break;
+                }
+              }
+            }
+
+            if (isDraft && (hasCommitAfterComments || mergedLinkedPr)) {
+              await github.rest.pulls.readyForReview({
+                owner,
+                repo,
+                pull_number,
+              });
+            }
+
+            core.info(
+              `post_review_updates hasCommitAfterComments=${hasCommitAfterComments} mergedLinkedPr=${mergedLinkedPr} linkedPrNumber=${linkedPrNumber ?? "none"}`,
+            );
+            core.setOutput("has_commit_after_comments", String(hasCommitAfterComments));
+            core.setOutput("merged_linked_pr", String(mergedLinkedPr));
+            core.setOutput("linked_pr_number", linkedPrNumber ? String(linkedPrNumber) : "");
+
       - name: Trigger Copilot review
         id: trigger_review
         if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
@@ -861,12 +1012,17 @@ jobs:
             const canMerge = "${{ steps.merge_ready.outputs.can_merge || 'false' }}";
             const blocked = "${{ steps.retry_budget.outputs.blocked || 'false' }}";
             const retryCount = Number("${{ steps.retry_budget.outputs.retry_count || '0' }}");
+            const commitAfterComments = "${{ steps.post_review_updates.outputs.has_commit_after_comments || 'false' }}";
+            const linkedPrMergedBeforeReview = "${{ steps.post_review_updates.outputs.merged_linked_pr || 'false' }}";
+            const linkedPrBeforeReview = "${{ steps.post_review_updates.outputs.linked_pr_number || '' }}";
             const maxRetries = process.env.MAX_REVIEW_RETRIES || "5";
             const maxConcurrent = process.env.MAX_CONCURRENT_REVIEW_CYCLES || "5";
 
             core.summary
               .addHeading(`PR #${prNumber} lifecycle summary`)
               .addRaw(`- Actionable comments detected: ${actionableCount}\n`)
+              .addRaw(`- Commit after review comments detected: ${commitAfterComments}\n`)
+              .addRaw(`- Linked PR merged before re-review: ${linkedPrMergedBeforeReview}${linkedPrBeforeReview ? ` (#${linkedPrBeforeReview})` : ""}\n`)
               .addRaw(`- Retry count: ${retryCount} / ${maxRetries}\n`)
               .addRaw(`- Blocked by retry budget: ${blocked}\n`)
               .addRaw(`- Merge-ready: ${canMerge}\n`)
