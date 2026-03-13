@@ -9,8 +9,8 @@ Unix timestamp in **milliseconds**.
 
 On every request:
 
-1. ``ZREMRANGEBYSCORE key -inf (now_ms - window_ms)``
-   — prune entries that fall outside the current window.
+1. ``ZREMRANGEBYSCORE key -inf window_start_ms``
+   — prune entries that fall at or before the start of the current window.
 2. ``ZCARD key``
    — count how many requests remain inside the window.
 3. If *count >= limit* → return HTTP 429 with rate-limit headers; do **not**
@@ -18,6 +18,9 @@ On every request:
 4. Otherwise ``ZADD key {uuid4: now_ms}`` — record the request.
 5. ``EXPIRE key window_seconds`` — reset the TTL so Redis can reclaim idle
    keys automatically.
+
+Steps 1–5 are executed atomically in a single Lua script to prevent
+concurrent requests from racing past the limit check.
 
 This provides a true sliding window (no boundary spikes) at O(log N) per
 request, where N is the number of requests in the current window.
@@ -51,6 +54,59 @@ from app.config import get_settings
 from app.providers.redis import RedisProvider
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lua script: atomic sliding-window prune + count + conditional add
+# ---------------------------------------------------------------------------
+# KEYS[1]  = rate-limit sorted-set key
+# ARGV[1]  = window_start_ms  (inclusive lower bound for pruning)
+# ARGV[2]  = now_ms           (current Unix timestamp in milliseconds)
+# ARGV[3]  = max_requests     (integer limit)
+# ARGV[4]  = window_seconds   (TTL for the key)
+# ARGV[5]  = request_id       (unique member to add on success)
+#
+# Returns a three-element array:
+#   [0] current count after pruning (before this request on 429, after on 200)
+#   [1] remaining slots (-1 when rate-limited)
+#   [2] Unix timestamp (seconds) when the oldest in-window entry will expire
+_RATE_LIMIT_LUA = """
+local key            = KEYS[1]
+local window_start   = tonumber(ARGV[1])
+local now_ms         = tonumber(ARGV[2])
+local max_requests   = tonumber(ARGV[3])
+local window_seconds = tonumber(ARGV[4])
+local window_ms      = window_seconds * 1000
+local request_id     = ARGV[5]
+
+-- 1. Prune entries at or before the start of the current window.
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+
+-- 2. Count remaining in-window entries.
+local count = redis.call('ZCARD', key)
+
+-- Helper: compute reset_ts from the oldest entry still in the set.
+local function oldest_reset_ts()
+    local members = redis.call('ZRANGE', key, 0, 0)
+    if #members > 0 then
+        local score = tonumber(redis.call('ZSCORE', key, members[1]))
+        return math.floor((score + window_ms) / 1000)
+    end
+    return math.floor(now_ms / 1000) + window_seconds
+end
+
+-- 3. Reject if over the limit.
+if count >= max_requests then
+    return {count, -1, oldest_reset_ts()}
+end
+
+-- 4. Record this request.
+redis.call('ZADD', key, now_ms, request_id)
+
+-- 5. Refresh TTL.
+redis.call('EXPIRE', key, window_seconds)
+
+return {count + 1, max_requests - count - 1, oldest_reset_ts()}
+"""
 
 # Route-specific limits: path -> (max_requests, window_seconds)
 # These apply per-IP regardless of auth status.
@@ -102,12 +158,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             request.app.state, "redis_provider", None
         )
 
-        # If Redis is unavailable, allow the request through rather than
-        # blocking all traffic.
-        if redis_provider is None or redis_provider.client is None:
+        # When Redis is unavailable, allow the request through rather than
+        # blocking all traffic.  Rate-limit headers are intentionally omitted
+        # in this degraded state since limit state cannot be reliably reported.
+        client = None
+        if redis_provider is not None:
+            try:
+                client = redis_provider.client
+            except RuntimeError:
+                pass
+
+        if client is None:
             return await call_next(request)
 
-        client = redis_provider.client
         path = request.url.path
 
         # ------------------------------------------------------------------
@@ -143,20 +206,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         now_ms = int(time.time() * 1000)
         window_ms = window_seconds * 1000
         window_start_ms = now_ms - window_ms
-        # Unix timestamp when the window will have fully elapsed from now.
-        reset_ts = int(time.time()) + window_seconds
 
         # ------------------------------------------------------------------
-        # Sliding window via Redis sorted set
+        # Atomic sliding window via Redis Lua script
         # ------------------------------------------------------------------
+        result = await client.eval(
+            _RATE_LIMIT_LUA,
+            1,
+            key,
+            window_start_ms,
+            now_ms,
+            max_requests,
+            window_seconds,
+            str(uuid.uuid4()),
+        )
+        _count, remaining, reset_ts = int(result[0]), int(result[1]), int(result[2])
 
-        # Step 1: Remove entries that have fallen outside the window.
-        await client.zremrangebyscore(key, "-inf", window_start_ms)
-
-        # Step 2: Count remaining (in-window) entries.
-        current_count: int = await client.zcard(key)
-
-        if current_count >= max_requests:
+        if remaining == -1:
             logger.warning(
                 "Rate limit exceeded: scope=%s route_prefix=%s",
                 scope,
@@ -170,16 +236,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             response.headers["X-RateLimit-Remaining"] = "0"
             response.headers["X-RateLimit-Reset"] = str(reset_ts)
             return response
-
-        # Step 3: Record this request in the sorted set.
-        request_id = str(uuid.uuid4())
-        await client.zadd(key, {request_id: now_ms})
-
-        # Step 4: Refresh TTL so idle keys are reclaimed by Redis.
-        await client.expire(key, window_seconds)
-
-        # remaining reflects the slot consumed by this request.
-        remaining = max(0, max_requests - current_count - 1)
 
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(max_requests)

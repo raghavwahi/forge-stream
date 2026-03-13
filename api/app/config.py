@@ -57,20 +57,6 @@ class GitHubOAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 
 
-class EncryptionSettings(BaseSettings):
-    master_secret: str = Field(
-        ...,
-        description=(
-            "Master secret for AES-256 API key encryption. "
-            "Generate with: python -c \"from api.app.security.encryption import "
-            "EncryptionManager; print(EncryptionManager.generate_master_secret())\""
-        ),
-        min_length=32,
-    )
-
-    model_config = SettingsConfigDict(env_prefix="ENCRYPTION_")
-
-
 class RateLimitSettings(BaseSettings):
     """Settings for the Redis-backed sliding window rate limiter.
 
@@ -104,7 +90,6 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
-    encryption: EncryptionSettings = Field(default_factory=EncryptionSettings)
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
 
     @property
