@@ -1,0 +1,626 @@
+name: PR Lifecycle Automation Agent
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+env:
+  MAX_CONCURRENT_REVIEW_CYCLES: "5"
+  MAX_REVIEW_RETRIES: "5"
+  REVIEW_POLL_ATTEMPTS: "15"
+  REVIEW_POLL_SECONDS: "20"
+  MERGE_LOCK_TTL_MINUTES: "30"
+  INFORMATIONAL_REVIEW_COMMENT_REGEX: "nit|nits|style|formatting|informational|optional|already handled by lint|already handled by linter"
+
+jobs:
+  discover-prs:
+    name: Discover open PRs
+    runs-on: ubuntu-latest
+    outputs:
+      pr_matrix: ${{ steps.discover.outputs.pr_matrix }}
+    steps:
+      - name: Discover and categorize open PRs
+        id: discover
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const allOpenPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              base: "main",
+              sort: "created",
+              direction: "asc",
+              per_page: 100,
+            });
+
+            const category = {
+              draft: [],
+              ready: [],
+              withComments: [],
+              approved: [],
+              skipped: [],
+            };
+
+            const processable = [];
+
+            for (const pr of allOpenPRs) {
+              const labels = pr.labels.map((label) => label.name);
+              if (labels.includes("agent-processing")) {
+                category.skipped.push(pr.number);
+                continue;
+              }
+
+              if (pr.draft) {
+                category.draft.push(pr.number);
+              } else {
+                category.ready.push(pr.number);
+              }
+
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+
+              const hasCommentReview = reviews.some(
+                (review) => review.state === "COMMENTED" || review.state === "CHANGES_REQUESTED",
+              );
+              const hasApproval = reviews.some((review) => review.state === "APPROVED");
+
+              if (hasCommentReview) {
+                category.withComments.push(pr.number);
+              }
+              if (hasApproval) {
+                category.approved.push(pr.number);
+              }
+
+              processable.push({
+                number: pr.number,
+                draft: pr.draft,
+                headRef: pr.head.ref,
+                headSha: pr.head.sha,
+                baseSha: pr.base.sha,
+              });
+            }
+
+            core.info(`Discovered ${allOpenPRs.length} open PR(s) targeting main.`);
+            core.info(`Draft: ${category.draft.join(", ") || "none"}`);
+            core.info(`Ready: ${category.ready.join(", ") || "none"}`);
+            core.info(`With review comments: ${category.withComments.join(", ") || "none"}`);
+            core.info(`Approved: ${category.approved.join(", ") || "none"}`);
+            core.info(`Skipped (already processing): ${category.skipped.join(", ") || "none"}`);
+
+            const maxConcurrent = Number(process.env.MAX_CONCURRENT_REVIEW_CYCLES || "5");
+            const limited = processable.slice(0, maxConcurrent);
+            core.setOutput("pr_matrix", JSON.stringify(limited));
+
+  process-pr:
+    name: Process PR #${{ matrix.pr.number }}
+    needs: discover-prs
+    if: ${{ needs.discover-prs.outputs.pr_matrix != '[]' && needs.discover-prs.outputs.pr_matrix != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        pr: ${{ fromJson(needs.discover-prs.outputs.pr_matrix) }}
+    steps:
+      - name: Add processing label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number("${{ matrix.pr.number }}");
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: ["agent-processing"],
+            });
+
+      - name: Evaluate retry budget
+        id: retry_budget
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number("${{ matrix.pr.number }}");
+
+            const issue = (await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number,
+            })).data;
+
+            let retries = 0;
+            for (const label of issue.labels) {
+              const name = typeof label === "string" ? label : label.name;
+              const match = /^agent-review-retry-(\d+)$/.exec(name || "");
+              if (match) {
+                retries = Math.max(retries, Number(match[1]));
+              }
+            }
+
+            const maxRetries = Number(process.env.MAX_REVIEW_RETRIES || "5");
+            const blocked = retries >= maxRetries;
+            core.info(`retry_count=${retries}, blocked=${blocked}`);
+            core.setOutput("retry_count", String(retries));
+            core.setOutput("blocked", String(blocked));
+
+      - name: Validate draft PR checks
+        if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const headSha = "${{ matrix.pr.headSha }}";
+
+            const checks = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: headSha,
+              per_page: 100,
+            });
+            const failedChecks = checks.data.check_runs.filter(
+              (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+            );
+            const pendingChecks = checks.data.check_runs.filter(
+              (check) => !check.conclusion || check.status !== "completed",
+            );
+
+            if (failedChecks.length > 0) {
+              core.setFailed(`Draft PR has failing checks: ${failedChecks.map((check) => check.name).join(", ")}`);
+              return;
+            }
+
+            if (pendingChecks.length > 0) {
+              core.setFailed(`Draft PR has pending checks: ${pendingChecks.map((check) => check.name).join(", ")}`);
+              return;
+            }
+
+      - name: Convert draft to ready for review
+        if: ${{ matrix.pr.draft == true && steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+
+            await github.rest.pulls.readyForReview({
+              owner,
+              repo,
+              pull_number,
+            });
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: ["agent-review-cycle"],
+            });
+
+      - name: Trigger Copilot review
+        id: trigger_review
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+
+            // Best-effort trigger for GitHub Copilot automated review.
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number,
+                reviewers: ["github-copilot[bot]"],
+              });
+            } catch (error) {
+              core.warning(`Could not request github-copilot[bot]: ${error.message}`);
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull_number,
+              body: "@github-copilot review this PR for bugs, security, performance, maintainability, and missing tests.",
+            });
+
+            core.setOutput("triggered_at", new Date().toISOString());
+
+      - name: Collect actionable review comments
+        id: actionable
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+            const reviewTriggeredAt = new Date("${{ steps.trigger_review.outputs.triggered_at }}");
+            const maxAttempts = Number(process.env.REVIEW_POLL_ATTEMPTS || "15");
+            const waitSeconds = Number(process.env.REVIEW_POLL_SECONDS || "20");
+
+            let reviewsAfterTrigger = [];
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number,
+                per_page: 100,
+              });
+
+              reviewsAfterTrigger = reviews.filter(
+                (review) => new Date(review.submitted_at || review.created_at) >= reviewTriggeredAt,
+              );
+
+              if (reviewsAfterTrigger.length > 0) {
+                core.info(`Review activity detected after trigger on attempt ${attempt}.`);
+                break;
+              }
+
+              if (attempt < maxAttempts) {
+                core.info(`No new review activity yet (attempt ${attempt}/${maxAttempts}); waiting ${waitSeconds}s...`);
+                await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+              }
+            }
+
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+
+            let informationalPattern;
+            try {
+              informationalPattern = new RegExp(
+                process.env.INFORMATIONAL_REVIEW_COMMENT_REGEX,
+                "i",
+              );
+            } catch (error) {
+              core.setFailed(`Invalid INFORMATIONAL_REVIEW_COMMENT_REGEX: ${error.message}`);
+              return;
+            }
+            const actionable = reviewComments.filter((comment) => {
+              const author = (comment.user?.login || "").toLowerCase();
+              if (comment.in_reply_to_id) {
+                return false;
+              }
+              if (!author.includes("copilot")) {
+                return false;
+              }
+              if (informationalPattern.test(comment.body || "")) {
+                return false;
+              }
+              return true;
+            });
+
+            core.info(`Actionable comments found: ${actionable.length}`);
+            core.setOutput("count", String(actionable.length));
+
+      - name: Re-trigger Copilot review after fixes
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull_number,
+              body: [
+                "Actionable Copilot review comments are still open.",
+                "Please apply fixes in this PR branch and re-run review.",
+                "",
+                "Requested commit message format:",
+                "`fix(review): resolve Copilot feedback`",
+              ].join("\n"),
+            });
+
+      - name: Update retry labels
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number("${{ matrix.pr.number }}");
+            const actionableCount = Number("${{ steps.actionable.outputs.count || '0' }}");
+            const retryCount = Number("${{ steps.retry_budget.outputs.retry_count }}");
+
+            const issue = (await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number,
+            })).data;
+
+            for (const label of issue.labels) {
+              const name = typeof label === "string" ? label : label.name;
+              if (/^agent-review-retry-(\d+)$/.test(name || "")) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner,
+                    repo,
+                    issue_number,
+                    name,
+                  });
+                } catch (error) {
+                  core.info(`Unable to remove retry label ${name}: ${error.message}`);
+                }
+              }
+            }
+
+            if (actionableCount > 0) {
+              const maxRetries = Number(process.env.MAX_REVIEW_RETRIES || "5");
+              const retryLabel = `agent-review-retry-${Math.min(retryCount + 1, maxRetries)}`;
+
+              try {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number,
+                  labels: [retryLabel],
+                });
+              } catch (error) {
+                if (error.status !== 422) {
+                  throw error;
+                }
+
+                try {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name: retryLabel,
+                    color: "f9d0c4",
+                    description: "Automated retry marker for PR lifecycle agent",
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) {
+                    throw createError;
+                  }
+                }
+
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number,
+                  labels: [retryLabel],
+                });
+              }
+            }
+
+      - name: Validate merge readiness
+        id: merge_ready
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+
+            const pr = (await github.rest.pulls.get({ owner, repo, pull_number })).data;
+
+            if (pr.mergeable_state === "behind") {
+              try {
+                await github.rest.pulls.updateBranch({ owner, repo, pull_number });
+              } catch (error) {
+                core.warning(`Could not update branch: ${error.message}`);
+              }
+            }
+
+            const checks = await github.rest.checks.listForRef({
+              owner,
+              repo,
+              ref: pr.head.sha,
+              per_page: 100,
+            });
+            const failedChecks = checks.data.check_runs.filter(
+              (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+            );
+            const pendingChecks = checks.data.check_runs.filter((check) => !check.conclusion || check.status !== "completed");
+
+            const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
+              owner,
+              repo,
+              ref: pr.head.sha,
+            });
+
+            const unresolvedThreads = [];
+            let hasNextPage = true;
+            let cursor = null;
+
+            while (hasNextPage) {
+              const unresolvedThreadsResponse = await github.graphql(
+                `query($owner: String!, $repo: String!, $pullNumber: Int!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pullNumber) {
+                      reviewThreads(first: 100, after: $cursor) {
+                        nodes {
+                          isResolved
+                          isOutdated
+                        }
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                      }
+                    }
+                  }
+                }`,
+                {
+                  owner,
+                  repo,
+                  pullNumber: pull_number,
+                  cursor,
+                },
+              );
+
+              const threadConnection = unresolvedThreadsResponse.repository.pullRequest.reviewThreads;
+              for (const thread of threadConnection.nodes || []) {
+                if (!thread.isResolved && !thread.isOutdated) {
+                  unresolvedThreads.push(thread);
+                }
+              }
+
+              hasNextPage = Boolean(threadConnection.pageInfo?.hasNextPage);
+              cursor = threadConnection.pageInfo?.endCursor ?? null;
+            }
+
+            const commentsCount = Number("${{ steps.actionable.outputs.count }}");
+            const canMerge = (
+              commentsCount === 0 &&
+              failedChecks.length === 0 &&
+              pendingChecks.length === 0 &&
+              (combinedStatus.data.state === "success" || combinedStatus.data.state === "neutral") &&
+              unresolvedThreads.length === 0 &&
+              pr.mergeable === true &&
+              pr.base.ref === "main" &&
+              pr.mergeable_state !== "dirty"
+            );
+
+            core.info(`can_merge=${canMerge}`);
+            core.setOutput("can_merge", String(canMerge));
+
+      - name: Acquire merge lock and squash-merge
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.merge_ready.outputs.can_merge == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+            const headRef = "${{ matrix.pr.headRef }}";
+
+            const openPRs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              base: "main",
+              per_page: 100,
+            });
+
+            const lockTtlMinutes = Number(process.env.MERGE_LOCK_TTL_MINUTES || "30");
+            const now = new Date();
+            const mergeLocked = openPRs.some((pr) => {
+              if (pr.number === pull_number) {
+                return false;
+              }
+              const hasLock = pr.labels.some((label) => label.name === "agent-merging");
+              if (!hasLock) {
+                return false;
+              }
+              const ageMinutes = (now - new Date(pr.updated_at)) / (1000 * 60);
+              return ageMinutes <= lockTtlMinutes;
+            });
+
+            if (mergeLocked) {
+              core.info("Another PR is currently merging. Skipping merge for now.");
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: ["agent-merging"],
+            });
+
+            await github.rest.pulls.merge({
+              owner,
+              repo,
+              pull_number,
+              merge_method: "squash",
+              commit_title: `Merge PR #${pull_number} via PR lifecycle agent`,
+            });
+
+            try {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `heads/${headRef}`,
+              });
+            } catch (error) {
+              core.warning(`Unable to delete branch ${headRef}: ${error.message}`);
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pull_number,
+              labels: ["merged-by-agent"],
+            });
+
+      - name: Cleanup processing labels
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = Number("${{ matrix.pr.number }}");
+
+            for (const label of ["agent-processing", "agent-merging"]) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number,
+                  name: label,
+                });
+              } catch (error) {
+                core.info(`Label ${label} not present for PR #${issue_number}.`);
+              }
+            }
+
+      - name: Summary report
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = Number("${{ matrix.pr.number }}");
+            const actionableCount = Number("${{ steps.actionable.outputs.count || '0' }}");
+            const canMerge = "${{ steps.merge_ready.outputs.can_merge || 'false' }}";
+            const blocked = "${{ steps.retry_budget.outputs.blocked || 'false' }}";
+            const retryCount = Number("${{ steps.retry_budget.outputs.retry_count || '0' }}");
+            const maxRetries = process.env.MAX_REVIEW_RETRIES || "5";
+            const maxConcurrent = process.env.MAX_CONCURRENT_REVIEW_CYCLES || "5";
+
+            core.summary
+              .addHeading(`PR #${prNumber} lifecycle summary`)
+              .addRaw(`- Actionable comments detected: ${actionableCount}\n`)
+              .addRaw(`- Retry count: ${retryCount} / ${maxRetries}\n`)
+              .addRaw(`- Blocked by retry budget: ${blocked}\n`)
+              .addRaw(`- Merge-ready: ${canMerge}\n`)
+              .addRaw(`- Max review retries configured: ${maxRetries} (enforced by repeated workflow cycles)\n`)
+              .addRaw(`- Max concurrent review cycles configured: ${maxConcurrent}\n`)
+              .addRaw(`- Max simultaneous merges configured: 1 (agent-merging lock)\n`)
+              .write();
