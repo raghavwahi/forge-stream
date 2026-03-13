@@ -404,9 +404,6 @@ jobs:
                 linkedPrNumber = candidate;
                 break;
               }
-              if (linkedPrNumber) {
-                break;
-              }
             }
 
             if (isDraft && (hasCommitAfterComments || mergedLinkedPr)) {
