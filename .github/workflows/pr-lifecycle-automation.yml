@@ -322,6 +322,247 @@ jobs:
 
             core.info(`Actionable comments found: ${actionable.length}`);
             core.setOutput("count", String(actionable.length));
+            core.setOutput(
+              "items",
+              JSON.stringify(
+                actionable.map((comment) => ({
+                  id: comment.id,
+                  url: comment.html_url,
+                  body: comment.body || "",
+                  author: comment.user?.login || "",
+                })),
+              ),
+            );
+
+      - name: Ask Copilot to auto-implement actionable comments
+        id: remediation
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+            const headRef = "${{ matrix.pr.headRef }}";
+            const baseRef = "${{ matrix.pr.baseRef }}";
+            const initialHeadSha = "${{ matrix.pr.headSha }}";
+            const maxAttempts = Number(process.env.REVIEW_POLL_ATTEMPTS || "15");
+            const waitSeconds = Number(process.env.REVIEW_POLL_SECONDS || "20");
+
+            const actionableItemsRaw = `${{ steps.actionable.outputs.items || '[]' }}`;
+            let actionableItems = [];
+            try {
+              actionableItems = JSON.parse(actionableItemsRaw);
+            } catch (error) {
+              core.warning(`Unable to parse actionable items output: ${error.message}`);
+            }
+
+            const trimmedItems = actionableItems.slice(0, 30);
+            const lines = trimmedItems.map((item, index) => {
+              const snippet = (item.body || "").replace(/\s+/g, " ").trim().slice(0, 160);
+              return `${index + 1}. ${item.url}${snippet ? ` — ${snippet}` : ""}`;
+            });
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull_number,
+              body: [
+                "@copilot Please auto-implement all actionable review comments in this PR.",
+                "Address each of the comments below and push fixes to this PR branch.",
+                "",
+                "If a separate PR is required, open it and mention its URL in a comment on this PR.",
+                "",
+                "**Actionable comments to fix:**",
+                ...(lines.length > 0 ? lines : ["- No individual comment links were captured; fix all open Copilot review comments."]),
+                "",
+                "Requested commit message format:",
+                "`fix(review): resolve Copilot feedback`",
+              ].join("\n"),
+            });
+
+            let currentBranchUpdated = false;
+            let linkedPrNumber = null;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const currentPr = (await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number,
+              })).data;
+
+              if (currentPr.head.sha !== initialHeadSha) {
+                currentBranchUpdated = true;
+              }
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pull_number,
+                per_page: 100,
+              });
+
+              for (const comment of comments) {
+                const body = comment.body || "";
+                const matches = body.match(new RegExp(`https://github.com/${owner}/${repo}/pull/(\\d+)`, "gi")) || [];
+                for (const match of matches) {
+                  const prMatch = /\/pull\/(\d+)/i.exec(match);
+                  if (!prMatch) {
+                    continue;
+                  }
+                  const candidate = Number(prMatch[1]);
+                  if (candidate !== pull_number) {
+                    linkedPrNumber = candidate;
+                    break;
+                  }
+                }
+                if (linkedPrNumber) {
+                  break;
+                }
+              }
+
+              if (currentBranchUpdated || linkedPrNumber) {
+                core.info(`Detected remediation progress on attempt ${attempt}: currentBranchUpdated=${currentBranchUpdated}, linkedPrNumber=${linkedPrNumber ?? "none"}`);
+                break;
+              }
+
+              if (attempt < maxAttempts) {
+                core.info(`No remediation updates yet (attempt ${attempt}/${maxAttempts}); waiting ${waitSeconds}s...`);
+                await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+              }
+            }
+
+            let linkedPrMerged = false;
+            if (linkedPrNumber) {
+              const linkedPr = (await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: linkedPrNumber,
+              })).data;
+
+              if (linkedPr.state === "open" && linkedPr.base.ref !== headRef) {
+                try {
+                  await github.rest.pulls.update({
+                    owner,
+                    repo,
+                    pull_number: linkedPrNumber,
+                    base: headRef,
+                  });
+                } catch (error) {
+                  core.warning(`Could not retarget linked PR #${linkedPrNumber} to ${headRef}: ${error.message}`);
+                }
+              }
+
+              const refreshedLinkedPr = (await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: linkedPrNumber,
+              })).data;
+
+              if (refreshedLinkedPr.state === "open" && refreshedLinkedPr.base.ref === headRef) {
+                await github.rest.pulls.merge({
+                  owner,
+                  repo,
+                  pull_number: linkedPrNumber,
+                  merge_method: "squash",
+                  commit_title: `Merge PR #${linkedPrNumber} into ${headRef} via PR lifecycle agent`,
+                });
+                linkedPrMerged = true;
+              } else {
+                core.warning(
+                  `Linked PR #${linkedPrNumber} was not merged automatically (state=${refreshedLinkedPr.state}, base=${refreshedLinkedPr.base.ref}, expected_base=${headRef}, parent_base=${baseRef}).`,
+                );
+              }
+
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${refreshedLinkedPr.head.ref}`,
+                });
+              } catch (error) {
+                core.info(`Unable to delete linked PR branch ${refreshedLinkedPr.head.ref}: ${error.message}`);
+              }
+            }
+
+            core.setOutput("current_branch_updated", String(currentBranchUpdated || linkedPrMerged));
+            core.setOutput("linked_pr_number", linkedPrNumber ? String(linkedPrNumber) : "");
+            core.setOutput("linked_pr_merged", String(linkedPrMerged));
+
+      - name: Resolve open review threads
+        id: resolve_threads
+        if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull_number = Number("${{ matrix.pr.number }}");
+
+            let hasNextPage = true;
+            let cursor = null;
+            const threadIds = [];
+
+            while (hasNextPage) {
+              const response = await github.graphql(
+                `query($owner: String!, $repo: String!, $pullNumber: Int!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pullNumber) {
+                      reviewThreads(first: 100, after: $cursor) {
+                        nodes {
+                          id
+                          isResolved
+                          isOutdated
+                        }
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                      }
+                    }
+                  }
+                }`,
+                {
+                  owner,
+                  repo,
+                  pullNumber: pull_number,
+                  cursor,
+                },
+              );
+
+              const threadConnection = response.repository.pullRequest.reviewThreads;
+              for (const thread of threadConnection.nodes || []) {
+                if (!thread.isResolved && !thread.isOutdated && thread.id) {
+                  threadIds.push(thread.id);
+                }
+              }
+
+              hasNextPage = Boolean(threadConnection.pageInfo?.hasNextPage);
+              cursor = threadConnection.pageInfo?.endCursor ?? null;
+            }
+
+            let resolvedCount = 0;
+            for (const threadId of threadIds) {
+              try {
+                await github.graphql(
+                  `mutation($threadId: ID!) {
+                    resolveReviewThread(input: {threadId: $threadId}) {
+                      thread {
+                        id
+                        isResolved
+                      }
+                    }
+                  }`,
+                  { threadId },
+                );
+                resolvedCount += 1;
+              } catch (error) {
+                core.warning(`Unable to resolve review thread ${threadId}: ${error.message}`);
+              }
+            }
+
+            core.info(`Resolved review threads: ${resolvedCount}`);
+            core.setOutput("count", String(resolvedCount));
 
       - name: Re-trigger Copilot review after fixes
         if: ${{ steps.retry_budget.outputs.blocked != 'true' && steps.actionable.outputs.count != '0' }}
@@ -340,8 +581,10 @@ jobs:
                 "Actionable Copilot review comments are still open.",
                 "Please apply fixes in this PR branch and re-run review.",
                 "",
-                "Requested commit message format:",
-                "`fix(review): resolve Copilot feedback`",
+                `Linked PR merged: ${{ steps.remediation.outputs.linked_pr_merged || 'false' }}`,
+                `Resolved review threads: ${{ steps.resolve_threads.outputs.count || '0' }}`,
+                "",
+                "Re-running review cycle now.",
               ].join("\n"),
             });
 
