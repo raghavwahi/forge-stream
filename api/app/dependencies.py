@@ -13,10 +13,12 @@ from app.providers.redis import RedisProvider
 from app.repositories.oauth_account import OAuthAccountRepository
 from app.repositories.password_reset import PasswordResetRepository
 from app.repositories.refresh_token import RefreshTokenRepository
+from app.repositories.repository import RepositoryRepository
 from app.repositories.user import UserRepository
 from app.security.jwt import JWTManager
 from app.security.password import PasswordManager
 from app.services.auth import AuthService
+from app.services.repository_service import RepositoryService
 
 bearer_scheme = HTTPBearer()
 
@@ -109,6 +111,18 @@ def get_auth_service(
         github_provider=github_provider,
         settings=settings,
     )
+
+
+def get_repository_repository(
+    db: DatabaseProvider = Depends(get_db_provider),
+) -> RepositoryRepository:
+    return RepositoryRepository(db)
+
+
+def get_repository_service(
+    repo: RepositoryRepository = Depends(get_repository_repository),
+) -> RepositoryService:
+    return RepositoryService(repo)
 
 
 async def get_current_user(
