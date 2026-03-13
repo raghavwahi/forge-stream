@@ -57,6 +57,22 @@ class GitHubOAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GITHUB_")
 
 
+class EncryptionSettings(BaseSettings):
+    """Settings for AES-256-GCM API key encryption.
+
+    Generate a master secret with:
+        python -c "from app.security.encryption import EncryptionManager; print(EncryptionManager.generate_master_secret())"
+    """
+
+    master_secret: str = Field(
+        default="change-me-in-production-min-32-chars",
+        description="Master secret for AES-256 API key encryption. Must be ≥32 characters.",
+        min_length=32,
+    )
+
+    model_config = SettingsConfigDict(env_prefix="ENCRYPTION_")
+
+
 class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "info"
@@ -71,6 +87,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     smtp: SMTPSettings = Field(default_factory=SMTPSettings)
     github: GitHubOAuthSettings = Field(default_factory=GitHubOAuthSettings)
+    encryption: EncryptionSettings = Field(default_factory=EncryptionSettings)
 
     @property
     def cors_origins(self) -> list[str]:
