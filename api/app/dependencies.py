@@ -10,12 +10,15 @@ from app.providers.database import DatabaseProvider
 from app.providers.email import SMTPEmailProvider
 from app.providers.github import GitHubOAuthProvider
 from app.providers.redis import RedisProvider
+from app.repositories.analytics import AnalyticsRepository
 from app.repositories.oauth_account import OAuthAccountRepository
 from app.repositories.password_reset import PasswordResetRepository
 from app.repositories.refresh_token import RefreshTokenRepository
 from app.repositories.user import UserRepository
+from app.security.encryption import EncryptionManager
 from app.security.jwt import JWTManager
 from app.security.password import PasswordManager
+from app.services.analytics import AnalyticsService
 from app.services.auth import AuthService
 
 bearer_scheme = HTTPBearer()
@@ -81,6 +84,12 @@ def get_password_manager() -> PasswordManager:
     return PasswordManager()
 
 
+@lru_cache
+def get_encryption_manager() -> EncryptionManager:
+    settings = get_cached_settings()
+    return EncryptionManager(settings.jwt.secret_key)
+
+
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     token_repo: RefreshTokenRepository = Depends(
@@ -109,6 +118,19 @@ def get_auth_service(
         github_provider=github_provider,
         settings=settings,
     )
+
+
+def get_analytics_repository(
+    db: DatabaseProvider = Depends(get_db_provider),
+) -> AnalyticsRepository:
+    return AnalyticsRepository(db)
+
+
+def get_analytics_service(
+    analytics_repo: AnalyticsRepository = Depends(get_analytics_repository),
+    redis: RedisProvider = Depends(get_redis_provider),
+) -> AnalyticsService:
+    return AnalyticsService(analytics_repo=analytics_repo, redis=redis)
 
 
 async def get_current_user(
