@@ -28,7 +28,6 @@ router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
 async def get_summary(
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
-    event_type: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     current_user: UserInDB = Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
@@ -37,11 +36,11 @@ async def get_summary(
     Returns total event counts, token usage, per-type breakdowns,
     recent events, and daily stats for the authenticated user.
     Results are served from Redis when available (5-minute TTL).
+    Aggregated totals apply to all event types within the date range.
     """
     params = AnalyticsQueryParams(
         start_date=start_date,
         end_date=end_date,
-        event_type=event_type,
         limit=limit,
     )
     return await service.get_cached_summary(current_user.id, params)
@@ -62,7 +61,8 @@ async def list_events(
 ) -> list[UsageEventResponse]:
     """
     Returns a list of individual usage events ordered by most recent first.
-    Filtered by the authenticated user's identity.
+    Filtered by the authenticated user's identity, optional event_type,
+    and optional date range.
     """
     params = AnalyticsQueryParams(
         start_date=start_date,
@@ -70,8 +70,7 @@ async def list_events(
         event_type=event_type,
         limit=limit,
     )
-    summary = await service.get_user_summary(current_user.id, params)
-    return summary.recent_events
+    return await service.get_user_events(current_user.id, params)
 
 
 @router.get(
@@ -93,8 +92,7 @@ async def list_daily_stats(
         start_date=start_date,
         end_date=end_date,
     )
-    summary = await service.get_user_summary(current_user.id, params)
-    return summary.daily_stats
+    return await service.get_daily_stats_only(current_user.id, params)
 
 
 @router.post(
@@ -114,3 +112,4 @@ async def record_event(
     """
     data.user_id = current_user.id
     return await service.track_event(data)
+

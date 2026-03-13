@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import date, timedelta, timezone
@@ -13,6 +12,7 @@ from app.repositories.analytics import AnalyticsRepository
 from app.schemas.analytics import (
     AnalyticsQueryParams,
     AnalyticsSummaryResponse,
+    DailyStatResponse,
     UsageEventCreate,
     UsageEventResponse,
 )
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_TTL_SECONDS = 300  # 5 minutes
 _CACHE_KEY_PREFIX = "analytics:summary"
+_VERSION_KEY_PREFIX = "analytics:version"
 
 
 class AnalyticsService:
@@ -53,8 +54,8 @@ class AnalyticsService:
                 event_type=data.event_type,
                 tokens=data.tokens_used or 0,
             )
-            # Invalidate any cached summary that covers today so the next
-            # read reflects the new event.
+            # Bump the per-user cache version so all existing cached keys
+            # for this user are bypassed on the next read.
             await self._invalidate_user_cache(data.user_id)
 
         return event
@@ -75,7 +76,6 @@ class AnalyticsService:
             start_date=start,
             end_date=end,
             limit=params.limit,
-            event_type=params.event_type,
         )
 
     async def get_cached_summary(
@@ -85,11 +85,14 @@ class AnalyticsService:
     ) -> AnalyticsSummaryResponse:
         """
         Return analytics summary, serving from Redis when available.
-        Cache key: analytics:summary:{user_id}:{start_date}:{end_date}
-        TTL: 5 minutes.
+        Cache key: analytics:summary:{user_id}:{version}:{start}:{end}:{limit}
+        TTL: 5 minutes.  The version component is bumped on every new event
+        so any subsequent read fetches fresh data regardless of the date range
+        or limit that was previously cached.
         """
         start, end = _resolve_date_range(params)
-        cache_key = _build_cache_key(user_id, start, end)
+        version = await self._get_user_cache_version(user_id)
+        cache_key = _build_cache_key(user_id, version, start, end, params.limit)
 
         cached = await self._redis.get(cache_key)
         if cached:
@@ -107,7 +110,6 @@ class AnalyticsService:
             start_date=start,
             end_date=end,
             limit=params.limit,
-            event_type=params.event_type,
         )
 
         try:
@@ -123,22 +125,66 @@ class AnalyticsService:
 
         return summary
 
+    async def get_user_events(
+        self,
+        user_id: uuid.UUID,
+        params: AnalyticsQueryParams,
+    ) -> list[UsageEventResponse]:
+        """
+        Return a filtered, paginated list of usage events for a user.
+        Applies both date range and event_type filters when provided.
+        """
+        start, end = _resolve_date_range(params)
+        return await self._repo.get_recent_events(
+            user_id=user_id,
+            limit=params.limit,
+            event_type=params.event_type,
+            start_date=start,
+            end_date=end,
+        )
+
+    async def get_daily_stats_only(
+        self,
+        user_id: uuid.UUID,
+        params: AnalyticsQueryParams,
+    ) -> list[DailyStatResponse]:
+        """
+        Return only per-day aggregated stats without fetching raw events,
+        avoiding the unnecessary recent-events query that would be incurred
+        by calling get_user_summary().
+        """
+        start, end = _resolve_date_range(params)
+        return await self._repo.get_daily_stats(
+            user_id=user_id,
+            start_date=start,
+            end_date=end,
+        )
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
+    async def _get_user_cache_version(self, user_id: uuid.UUID) -> int:
+        """
+        Return the current cache version for *user_id*.
+        Returns 0 when no version key has been set yet.
+        """
+        version_key = f"{_VERSION_KEY_PREFIX}:{user_id}"
+        try:
+            raw = await self._redis.get(version_key)
+            return int(raw) if raw is not None else 0
+        except Exception:
+            return 0
+
     async def _invalidate_user_cache(self, user_id: uuid.UUID) -> None:
         """
-        Delete the cached summary for the date range that includes today.
-        Only the current-day-inclusive range is invalidated; historical
-        ranges remain valid until their TTL expires.
+        Increment the per-user cache version, effectively invalidating
+        all previously cached summaries for this user regardless of the
+        date range, limit, or event_type that was cached.
         """
-        today = dt.now(timezone.utc).date()
-        # Invalidate the default 30-day window that covers today
-        start = today - timedelta(days=29)
-        cache_key = _build_cache_key(user_id, start, today)
+        version_key = f"{_VERSION_KEY_PREFIX}:{user_id}"
         try:
-            await self._redis.delete(cache_key)
+            await self._redis.incr(version_key)
         except Exception:
             logger.warning(
                 "Failed to invalidate cache for user_id=%s", user_id
@@ -159,6 +205,10 @@ def _resolve_date_range(params: AnalyticsQueryParams) -> tuple[date, date]:
 
 
 def _build_cache_key(
-    user_id: uuid.UUID, start: date, end: date
+    user_id: uuid.UUID, version: int, start: date, end: date, limit: int
 ) -> str:
-    return f"{_CACHE_KEY_PREFIX}:{user_id}:{start.isoformat()}:{end.isoformat()}"
+    return (
+        f"{_CACHE_KEY_PREFIX}:{user_id}:{version}"
+        f":{start.isoformat()}:{end.isoformat()}:{limit}"
+    )
+

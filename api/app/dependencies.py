@@ -87,7 +87,7 @@ def get_password_manager() -> PasswordManager:
 @lru_cache
 def get_encryption_manager() -> EncryptionManager:
     settings = get_cached_settings()
-    return EncryptionManager(settings.encryption.master_secret)
+    return EncryptionManager(settings.jwt.secret_key)
 
 
 def get_auth_service(

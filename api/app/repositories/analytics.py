@@ -90,35 +90,36 @@ class AnalyticsRepository(BaseRepository):
         user_id: uuid.UUID,
         limit: int,
         event_type: str | None,
+        start_date: date | None = None,
+        end_date: date | None = None,
     ) -> list[UsageEventResponse]:
-        """Return the most recent usage events for a user."""
+        """Return the most recent usage events for a user, with optional filtering."""
+        conditions = ["user_id = $1"]
+        args: list = [user_id]
+
         if event_type:
-            rows = await self._db.fetch_all(
-                """
-                SELECT id, user_id, event_type, provider, model,
-                       tokens_used, latency_ms, metadata, created_at
-                FROM   usage_events
-                WHERE  user_id = $1 AND event_type = $2
-                ORDER  BY created_at DESC
-                LIMIT  $3
-                """,
-                user_id,
-                event_type,
-                limit,
-            )
-        else:
-            rows = await self._db.fetch_all(
-                """
-                SELECT id, user_id, event_type, provider, model,
-                       tokens_used, latency_ms, metadata, created_at
-                FROM   usage_events
-                WHERE  user_id = $1
-                ORDER  BY created_at DESC
-                LIMIT  $2
-                """,
-                user_id,
-                limit,
-            )
+            args.append(event_type)
+            conditions.append(f"event_type = ${len(args)}")
+        if start_date:
+            args.append(start_date)
+            conditions.append(f"created_at >= ${len(args)}")
+        if end_date:
+            args.append(end_date)
+            conditions.append(f"created_at < (${len(args)} + INTERVAL '1 day')")
+
+        args.append(limit)
+        where_clause = " AND ".join(conditions)
+        rows = await self._db.fetch_all(
+            f"""
+            SELECT id, user_id, event_type, provider, model,
+                   tokens_used, latency_ms, metadata, created_at
+            FROM   usage_events
+            WHERE  {where_clause}
+            ORDER  BY created_at DESC
+            LIMIT  ${len(args)}
+            """,
+            *args,
+        )
         return [_row_to_event(r) for r in rows]
 
     async def get_daily_stats(
@@ -148,7 +149,6 @@ class AnalyticsRepository(BaseRepository):
         start_date: date,
         end_date: date,
         limit: int,
-        event_type: str | None,
     ) -> AnalyticsSummaryResponse:
         """
         Compute a high-level summary combining totals and per-type
@@ -182,16 +182,9 @@ class AnalyticsRepository(BaseRepository):
 
         total_events = int(agg["total_events"]) if agg else 0
         total_tokens = int(agg["total_tokens"]) if agg else 0
-        raw_by_type = agg["events_by_type"] if agg else None
-        # asyncpg may return the JSONB column as a string or dict
-        events_by_type: dict = {}
-        if raw_by_type:
-            if isinstance(raw_by_type, str):
-                events_by_type = json.loads(raw_by_type)
-            else:
-                events_by_type = dict(raw_by_type)
+        events_by_type: dict = _parse_jsonb(agg["events_by_type"] if agg else None)
 
-        recent = await self.get_recent_events(user_id, limit, event_type)
+        recent = await self.get_recent_events(user_id, limit, None)
         daily = await self.get_daily_stats(user_id, start_date, end_date)
 
         return AnalyticsSummaryResponse(
