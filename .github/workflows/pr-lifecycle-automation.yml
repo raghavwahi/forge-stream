@@ -335,14 +335,43 @@ jobs:
                   })).data;
 
                   if (refreshed.state === "open" && refreshed.base.ref === headRef) {
-                    await github.rest.pulls.merge({
+                    const linkedChecks = await github.rest.checks.listForRef({
                       owner,
                       repo,
-                      pull_number: candidate,
-                      merge_method: "squash",
-                      commit_title: `Merge PR #${candidate} into ${headRef} via PR lifecycle agent`,
+                      ref: refreshed.head.sha,
+                      per_page: 100,
                     });
-                    mergedLinkedPr = true;
+                    const failedLinkedChecks = linkedChecks.data.check_runs.filter(
+                      (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+                    );
+                    const pendingLinkedChecks = linkedChecks.data.check_runs.filter(
+                      (check) => !check.conclusion || check.status !== "completed",
+                    );
+                    const linkedCombinedStatus = await github.rest.repos.getCombinedStatusForRef({
+                      owner,
+                      repo,
+                      ref: refreshed.head.sha,
+                    });
+
+                    if (
+                      failedLinkedChecks.length === 0 &&
+                      pendingLinkedChecks.length === 0 &&
+                      (linkedCombinedStatus.data.state === "success" || linkedCombinedStatus.data.state === "neutral")
+                    ) {
+                      await github.rest.pulls.merge({
+                        owner,
+                        repo,
+                        pull_number: candidate,
+                        merge_method: "squash",
+                        commit_title: `Merge PR #${candidate} into ${headRef} via PR lifecycle agent`,
+                        commit_message: `Automated merge of linked PR #${candidate} into ${headRef} after review comments.`,
+                      });
+                      mergedLinkedPr = true;
+                    } else {
+                      core.warning(
+                        `Linked PR #${candidate} has failing/pending checks; skipping auto-merge.`,
+                      );
+                    }
                   }
 
                   try {
@@ -618,14 +647,41 @@ jobs:
               })).data;
 
               if (refreshedLinkedPr.state === "open" && refreshedLinkedPr.base.ref === headRef) {
-                await github.rest.pulls.merge({
+                const linkedChecks = await github.rest.checks.listForRef({
                   owner,
                   repo,
-                  pull_number: linkedPrNumber,
-                  merge_method: "squash",
-                  commit_title: `Merge PR #${linkedPrNumber} into ${headRef} via PR lifecycle agent`,
+                  ref: refreshedLinkedPr.head.sha,
+                  per_page: 100,
                 });
-                linkedPrMerged = true;
+                const failedLinkedChecks = linkedChecks.data.check_runs.filter(
+                  (check) => check.conclusion && !["success", "skipped", "neutral"].includes(check.conclusion),
+                );
+                const pendingLinkedChecks = linkedChecks.data.check_runs.filter(
+                  (check) => !check.conclusion || check.status !== "completed",
+                );
+                const linkedCombinedStatus = await github.rest.repos.getCombinedStatusForRef({
+                  owner,
+                  repo,
+                  ref: refreshedLinkedPr.head.sha,
+                });
+
+                if (
+                  failedLinkedChecks.length === 0 &&
+                  pendingLinkedChecks.length === 0 &&
+                  (linkedCombinedStatus.data.state === "success" || linkedCombinedStatus.data.state === "neutral")
+                ) {
+                  await github.rest.pulls.merge({
+                    owner,
+                    repo,
+                    pull_number: linkedPrNumber,
+                    merge_method: "squash",
+                    commit_title: `Merge PR #${linkedPrNumber} into ${headRef} via PR lifecycle agent`,
+                    commit_message: `Automated merge of linked PR #${linkedPrNumber} into ${headRef} after remediation.`,
+                  });
+                  linkedPrMerged = true;
+                } else {
+                  core.warning(`Linked PR #${linkedPrNumber} has failing/pending checks; skipping auto-merge.`);
+                }
               } else {
                 core.warning(
                   `Linked PR #${linkedPrNumber} was not merged automatically (state=${refreshedLinkedPr.state}, base=${refreshedLinkedPr.base.ref}, expected_base=${headRef}, parent_base=${baseRef}).`,
