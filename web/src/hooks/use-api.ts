@@ -10,6 +10,16 @@ export interface ConfigPayload {
 
 export interface PromptPayload {
   prompt: string;
+  model?: string;
+}
+
+export interface EnhancePromptPayload {
+  prompt: string;
+  model?: string;
+}
+
+export interface EnhancePromptResponse {
+  enhanced_prompt: string;
 }
 
 export interface ProposedItem {
@@ -61,7 +71,17 @@ export function useSaveConfig() {
 export function useGenerate() {
   return useMutation({
     mutationFn: (payload: PromptPayload) =>
-      apiFetch<GenerateResponse>("/api/generate", {
+      apiFetch<GenerateResponse>("/api/v1/work-items/generate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+  });
+}
+
+export function useEnhancePrompt() {
+  return useMutation({
+    mutationFn: (payload: EnhancePromptPayload) =>
+      apiFetch<EnhancePromptResponse>("/api/v1/work-items/enhance-prompt", {
         method: "POST",
         body: JSON.stringify(payload),
       }),
