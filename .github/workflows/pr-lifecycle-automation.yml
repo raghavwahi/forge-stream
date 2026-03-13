@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
 
 permissions:
@@ -56,6 +56,12 @@ jobs:
             const processable = [];
 
             for (const pr of allOpenPRs) {
+              if ((pr.head.repo?.full_name || "").toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+                core.info(`Skipping PR #${pr.number} from forked repository head ${pr.head.repo?.full_name || "unknown"}.`);
+                category.skipped.push(pr.number);
+                continue;
+              }
+
               const labels = pr.labels.map((label) => label.name);
               if (labels.includes("agent-processing")) {
                 category.skipped.push(pr.number);
@@ -92,6 +98,7 @@ jobs:
                 draft: pr.draft,
                 headRef: pr.head.ref,
                 headSha: pr.head.sha,
+                baseRef: pr.base.ref,
                 baseSha: pr.base.sha,
               });
             }
