@@ -57,44 +57,49 @@ WORK_ITEM_HIERARCHY_SCHEMA = '''{
           "description": "Nested child work items (max depth 3: epic -> story -> task)"
         }
       },
-      "required": ["type", "title"]
+      "required": ["type", "title", "description", "labels"]
     }
   }
 }'''
 
 WORK_ITEM_SCHEMA = '''{
-  "type": "object",
-  "title": "WorkItem",
-  "description": "A single work item in the hierarchy.",
-  "properties": {
-    "type": {
-      "type": "string",
-      "enum": ["epic", "story", "bug", "task"],
-      "description": "The type of work item"
-    },
-    "title": {
-      "type": "string",
-      "description": "Short title for the work item (max 80 characters)"
-    },
-    "description": {
-      "type": "string",
-      "default": "",
-      "description": "Detailed description or acceptance criteria (min 20 characters)"
-    },
-    "labels": {
-      "type": "array",
-      "items": {"type": "string"},
-      "default": [],
-      "description": "Lowercase slug labels (e.g. backend, api, auth)"
-    },
-    "children": {
-      "type": "array",
-      "items": {"$ref": "#/"},
-      "default": [],
-      "description": "Nested child work items"
+  "$ref": "#/$defs/WorkItem",
+  "$defs": {
+    "WorkItem": {
+      "type": "object",
+      "title": "WorkItem",
+      "description": "A single work item in the hierarchy.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["epic", "story", "bug", "task"],
+          "description": "The type of work item"
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for the work item (max 80 characters)"
+        },
+        "description": {
+          "type": "string",
+          "default": "",
+          "description": "Detailed description or acceptance criteria (min 20 characters)"
+        },
+        "labels": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": [],
+          "description": "Lowercase slug labels (e.g. backend, api, auth)"
+        },
+        "children": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/WorkItem"},
+          "default": [],
+          "description": "Nested child work items"
+        }
+      },
+      "required": ["type", "title", "description", "labels"]
     }
-  },
-  "required": ["type", "title"]
+  }
 }'''
 
 WORK_ITEM_HIERARCHY_EXAMPLE = '''{
