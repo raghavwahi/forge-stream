@@ -73,7 +73,7 @@ class LLMProvider:
         )
         user_message = template.format_user(prompt=prompt)
         messages = [
-            SystemMessage(content=template.system),
+            SystemMessage(content=template.format_system()),
             HumanMessage(content=user_message),
         ]
         response = await llm.ainvoke(messages)
