@@ -1,3 +1,7 @@
+networks:
+  forge-net:
+    driver: bridge
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,28 +14,53 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../../infra/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - forge-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U forge -d forgestream"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    command:
+      - redis-server
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - "60 1"
+    volumes:
+      - redisdata:/data
+    networks:
+      - forge-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
   mailpit:
     image: axllent/mailpit
     ports:
       - "1025:1025"
       - "8025:8025"
+    networks:
+      - forge-net
 
   api:
     build:
@@ -53,11 +82,51 @@ services:
       - SMTP_PORT=1025
       - SMTP_USE_TLS=false
       - FRONTEND_URL=http://localhost:3000
+    networks:
+      - forge-net
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../../api
+      dockerfile: ../infra/docker/Dockerfile.worker
+    environment:
+      - ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=forge
+      - DB_PASSWORD=forge
+      - DB_NAME=forgestream
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=dev-secret-change-in-production
+    networks:
+      - forge-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    restart: unless-stopped
 
   web:
     build:
@@ -67,9 +136,17 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://api:8000
+    networks:
+      - forge-net
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:
