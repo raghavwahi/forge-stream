@@ -1,0 +1,54 @@
+# Multi-stage production image for the ForgeStream background worker.
+#
+# Stage 1 (builder): installs Python dependencies into a virtualenv.
+# Stage 2 (runner):  copies only the venv and app source — no build tools.
+
+# ─── Builder ──────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# System deps needed at build time only
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libffi-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create an isolated venv so we can copy it cleanly into runner
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install project dependencies first (layer-cache friendly)
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
+
+# Copy application source
+COPY app/ ./app/
+
+# ─── Runner ───────────────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runner
+
+WORKDIR /app
+
+# Runtime libs only (no compiler)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libffi8 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy venv from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application source
+COPY --from=builder /build/app ./app/
+
+# Drop privileges
+RUN adduser --system --uid 1001 workeruser
+USER workeruser
+
+# Worker entry-point — runs the async worker loop.
+# The WORKER_CONCURRENCY env var controls how many parallel asyncio tasks
+# the worker will process simultaneously (default 4).
+ENV WORKER_CONCURRENCY=4
+
+CMD ["python", "-m", "app.workers.entrypoint"]
